@@ -1,0 +1,41 @@
+language: 'en'
+LOG_PATH: '/data/cb_nlu_v2/'
+
+embeddings:
+  host: '0.0.0.0'
+  port: 6500
+  dir: '/data/cb_nlu_v2/vectors/'
+  file: 'wiki-news-300d-1M.vec'
+  wiki300: 'wiki-news-300d-1M.vec'
+  glove300 : 'glove.6B.300d.w2v'
+
+model:
+  loadAtStart: true
+  useRedisQModel: true
+  host: '0.0.0.0'
+  port: 5000
+  dir: '/data/cb_nlu_v2/models/'
+  maxlen : 400
+  batch_size :  32
+  embedding_dims :  300
+  hidden_dims : 200
+  filters : 250
+  kernel_size : 3
+  dropout: 0.2
+  epochs : 10
+  activation: 'relu'
+  strides : 1
+  optimizer : 'adam'
+  poll: 0.25
+  pollBatchSize: 100
+
+multiplexer:
+  host: '0.0.0.0'
+  port: 5555
+  poll: 1 # time to poll insecond
+  maxPollCount: 10
+
+redis:
+  host: 'localhost'
+  port: '6379'
+  cluster: false
