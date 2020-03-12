@@ -55,11 +55,9 @@ def main():
         with open(word2vec_pkl_path, 'rb') as f:
             vectors = pickle.load(f)
 
-    set_trace()
-
     sentences = ['hi , how are you typosss', 'hello']
-    tokenize_and_vectorize(tokenizer, vectors, sentences)
-    set_trace()
+    # print(tokenize_and_vectorize(tokenizer, vectors, sentences))
+    print(vectors.__dict__)
 
 
 if __name__ == '__main__':

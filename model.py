@@ -12,10 +12,53 @@ from nltk.tokenize import TreebankWordTokenizer
 import re
 import pickle
 import os
-from pdb import set_trace
-from embeddings import tokenize_and_vectorize
+
 import yaml
-from jians_utils import read_csv_json
+import pandas
+from typing import List
+from keras import losses
+
+
+def read_csv_json(file_name) -> pandas.DataFrame:
+    if file_name.endswith('json') or file_name.endswith('jsonl'):
+        df = pandas.read_json(file_name, lines=True)
+    elif file_name.endswith('csv'):
+        df = pandas.read_csv(file_name)
+    else:
+        raise NotImplementedError
+    return df
+
+
+def use_only_alphanumeric(input):
+    pattern = re.compile('[\W^\'\"]+')
+    output = pattern.sub(' ', input).strip()
+    return output
+
+
+def tokenize_and_vectorize(tokenizer, embedding_vector, dataset):
+    vectorized_data = []
+    # probably could be optimized further
+    ds1 = [use_only_alphanumeric(samp) for samp in dataset]
+    token_list = [tokenizer.tokenize(sample) for sample in ds1]
+
+    unk_vec = None
+    try:
+        unk_vec = embedding_vector['UNK'].tolist()
+    except Exception as e:
+        pass
+
+    for tokens in token_list:
+        vecs = []
+        for token in tokens:
+            try:
+                vecs.append(embedding_vector[token].tolist())
+            except KeyError:
+                print('token not found: (%s) in sentence: %s' % (token, ' '.join(tokens)))
+                if unk_vec is not None:
+                    vecs.append(unk_vec)
+                continue
+        vectorized_data.append(vecs)
+    return vectorized_data
 
 
 def pad_trunc(data, maxlen):
@@ -43,58 +86,76 @@ def pad_trunc(data, maxlen):
     return new_data
 
 
-def save(model, le):
+def save(model, le, path):
     '''
     save model based on model, encoder
     '''
 
-    fileMeta = ('/data/cb_nlu_v2/', '1', '1')
-    if not os.path.exists('%s%s/%s' % fileMeta):
-        os.makedirs('%s%s/%s' % fileMeta, exist_ok=True)
-    print('saving model:::(DIR:%s, ModelID:%s, ModelVersion:%s)' % fileMeta)
-    structure_file = "%s%s/%s/structure.json" % fileMeta
-    weight_file = "%s%s/%s/weight.h5" % fileMeta
-    labels_file = "%s%s/%s/classes" % fileMeta
+    if not os.path.exists(path):
+        os.makedirs(path, exist_ok=True)
+    print(f'saving model to {path}')
+    structure_file = os.path.join(path, 'structure.json')
+    weight_file = os.path.join(path, 'weight.h5')
+    labels_file = os.path.join(path, 'classes')
     with open(structure_file, "w") as json_file:
         json_file.write(model.to_json())
     model.save_weights(weight_file)
     np.save(labels_file, le.classes_)
-    print('finished save model:::(DIR:%s, ModelID:%s, ModelVersion:%s)' % fileMeta)
+
+
+def load(path):
+    print(f'loading model from {path}')
+    structure_file = os.path.join(path, 'structure.json')
+    weight_file = os.path.join(path, 'weight.h5')
+    labels_file = os.path.join(path, 'classes.npy')
+    with open(structure_file, "r") as json_file:
+        json_string = json_file.read()
+        model = model_from_json(json_string)
+        model.load_weights(weight_file)
+        model._make_predict_function()
+        le = preprocessing.LabelEncoder()
+        le.classes_ = np.load(labels_file)
+        json_file.close()
+        return model, le
+
+
+def predict(session, graph, model, vectorized_input):
+    if session is None:
+        raise ("Session is not initialized")
+    if graph is None:
+        raise ("Graph is not initialized")
+    if model is None:
+        raise ("Model is not initialized")
+    with session.as_default():
+        with graph.as_default():
+            probs = model.predict_proba(vectorized_input)
+            preds = model.predict_classes(vectorized_input)
+            return (probs, preds)
 
 
 class Model:
-    def __init__(self):
-        self.model_cfg = self.load_cfg()
+    def __init__(self, word2vec_pkl_path, config_path):
+        with open(config_path, 'r') as f:
+            self.model_cfg = yaml.safe_load(f)['model']
         self.tokenizer = TreebankWordTokenizer()
-        self.vectors = self._load_vectors
 
-    @staticmethod
-    def _load_vectors():
-        word2vec_path = '/data/cb_nlu_v2/vectors/wiki-news-300d-1M.vec'
-        word2vec_pkl_path = '/data/cb_nlu_v2/vectors/wiki-news-300d-1M.pkl'
-        if not os.path.isfile(word2vec_pkl_path):
-            print('load vectors')
-            vectors = KeyedVectors.load_word2vec_format(word2vec_path, limit=None)
-            vectors.init_sims(replace=True)  # normalize the word vectors
-            with open(word2vec_pkl_path, 'wb') as f:
-                pickle.dump(vectors, f)
-        else:
-            print('load pickle vectors')
-            with open(word2vec_pkl_path, 'rb') as f:
-                vectors = pickle.load(f)
-        return vectors
+        with open(word2vec_pkl_path, 'rb') as f:
+            self.vectors = pickle.load(f)
+        self.model = None
+        self.session = None
+        self.graph = None
+        self.le_encoder = None
 
-    @staticmethod
-    def load_cfg():
-        with open("config.yml", 'r') as f:
-            return yaml.safe_load(f)['model']
-
-    def train(self, dataset):
+    def train(self, tr_set_path, save_path):
         """
         Train a model for a given dataset
         Dataset should be a list of tuples consisting of
         training sentence and the class label
         """
+        df_tr = read_csv_json(tr_set_path)
+        messages = list(df_tr.text)
+        labels = list(df_tr.intent)
+        dataset = [{'data': messages[i], 'label': labels[i]} for i in range(len(df_tr))]
 
         K.clear_session()
         graph = tf.Graph()
@@ -110,7 +171,11 @@ class Model:
                           batch_size=self.model_cfg['batch_size'],
                           epochs=self.model_cfg['epochs'])
                 print('finished training')
-                save(model, le_encoder)
+                save(model, le_encoder, save_path)
+                self.model = model
+                self.session = session
+                self.graph = graph
+                self.le_encoder = le_encoder
 
     def __preprocess(self, dataset):
         '''
@@ -128,9 +193,7 @@ class Model:
         print(le_encoder.classes_)
         vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, data)
 
-        print(vectorized_data.shape)
-
-        split_point = int(len(vectorized_data) * .9)
+        # split_point = int(len(vectorized_data) * .9)
         x_train = vectorized_data  # vectorized_data[:split_point]
         y_train = encoded_labels  # encoded_labels[:split_point]
 
@@ -150,7 +213,7 @@ class Model:
         model.add(Dense(num_classes))
         model.add(Activation('softmax'))
 
-        def categorical_crossentropy_w_label_smoothing(y_true, y_pred, \
+        def categorical_crossentropy_w_label_smoothing(y_true, y_pred,
                                                        from_logits=False, label_smoothing=0):
             y_pred = K.constant(y_pred) if not K.is_tensor(y_pred) else y_pred
             y_true = K.cast(y_true, y_pred.dtype)
@@ -165,7 +228,7 @@ class Model:
                 y_true = K.switch(K.greater(smoothing, 0), _smooth_labels, lambda: y_true)
             return K.categorical_crossentropy(y_true, y_pred, from_logits=from_logits)
 
-        model.compile(loss=categorical_crossentropy_w_label_smoothing,
+        model.compile(loss=losses.categorical_crossentropy,
                       metrics=['sparse_categorical_accuracy'],
                       optimizer=optimizer_type)
         return model
@@ -190,23 +253,30 @@ class Model:
         model.add(Dense(hidden_dims))
         model.add(Activation(activation_type))
 
+    def load(self, path):
+        K.clear_session()
+        graph = tf.Graph()
+        with graph.as_default():
+            session = tf.Session()
+            with session.as_default():
+                self.session = session
+                self.graph = graph
+                (model, le) = load(path)
+                self.model = model
+                self.le_encoder = le
 
-def main():
-    model = Model()
+    def predict(self, input: List[str]):
+        vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, input)
+        x_train = pad_trunc(vectorized_data, self.model_cfg['maxlen'])
+        vectorized_input = np.reshape(x_train, (len(x_train), self.model_cfg['maxlen'], self.model_cfg['embedding_dims']))
 
-    # prepare data from our json training file
-    df_tr = read_csv_json('/data/deep-sentence-classifiers/preprocessed_data/Hawaiian/tr.json')
-
-    messages = list(df_tr.text)
-    labels = list(df_tr.intent)
-    dataset = [{'data': messages[i], 'label': labels[i]} for i in range(len(df_tr))]
-
-    # train
-    model.train(dataset)
-
-    # # predict
-    # model.predict(...)
-
-
-if __name__ == '__main__':
-    main()
+        (probs, preds) = predict(self.session, self.graph, self.model, vectorized_input)
+        probs = probs.tolist()
+        results = self.le_encoder.inverse_transform(preds)
+        output = [{'input': input[i],
+                   'embeddings': x_train[i],
+                   'label': r,
+                   'highestProb': max(probs[i]),
+                   'prob': dict(zip(self.le_encoder.classes_, probs[i]))
+                   } for i, r in enumerate(results)]
+        return output
