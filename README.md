@@ -1,8 +1,6 @@
 # Simplified LP NLU v2
 
-This repo provides a simplified version of [LP NLU v2](https://lpgithub.dev.lprnd.net/BotCentral/cb_nlu_v2) repo, with *label smoothing* cross entopy. It's weird that in this repo they are using label smoothing, while in their production they don't (thus the repo linked above should not be CB's production repo).
-
-To use it, simply do
+This repo provides a simplified version of [LP NLU v2](https://lpgithub.dev.lprnd.net/BotCentral/cb_nlu_v2) repo. To use it, simply do
 
 ```python
 from model import Model

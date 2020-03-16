@@ -19,25 +19,21 @@ def main():
     model.train(tr_set_path, test_model_path)
     ######################### training ends #########################
 
-
     ######################### loading #########################
     model.load(test_model_path)
     ######################### loading ends #########################
-
 
     ######################### predicting #########################
     df_te = pandas.read_json(te_set_path, lines=True)
     output = model.predict(list(df_te.text))
     ######################### predicting ends #########################
 
-
     ######################### evaluating the prediction #########################
     ground_truths = list(df_te.intent)
     predictions = [x['label'] for x in output]
-    print(classification_report(y_true=ground_truths, y_pred=predictions))
-
-    ######################### see the prediction dictionary fields #########################
-    print(list(output[0].keys()))
+    threshold_predictions = [x['label'] if x['highestProb'] > 0.7 else 'undefined' for x in output]
+    print(classification_report(y_true=ground_truths, y_pred=threshold_predictions))
+    ######################### evaluating the prediction ends #########################
 
 
 if __name__ == '__main__':

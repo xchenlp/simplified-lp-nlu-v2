@@ -228,7 +228,10 @@ class Model:
                 y_true = K.switch(K.greater(smoothing, 0), _smooth_labels, lambda: y_true)
             return K.categorical_crossentropy(y_true, y_pred, from_logits=from_logits)
 
-        model.compile(loss=categorical_crossentropy_w_label_smoothing,
+        # model.compile(loss=categorical_crossentropy_w_label_smoothing,
+        #               metrics=['sparse_categorical_accuracy'],
+        #               optimizer=optimizer_type)
+        model.compile(loss='sparse_categorical_crossentropy',
                       metrics=['sparse_categorical_accuracy'],
                       optimizer=optimizer_type)
         return model
