@@ -1,4 +1,4 @@
-from model import Model
+from model_tf2 import Model
 import os
 from pdb import set_trace
 import pandas
