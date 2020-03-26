@@ -253,7 +253,7 @@ class Model:
             strides=strides,
             input_shape=(maxlen, embedding_dims)))
         model.add(GlobalMaxPooling1D())
-        model.add(Dense(hidden_dims))
+        model.add(Dense(hidden_dims), name='logits')
         model.add(Activation(activation_type))
 
     def load(self, path):
