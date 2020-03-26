@@ -15,6 +15,7 @@ import os
 
 import yaml
 import pandas
+from keras.models import Model as KerasModel
 from typing import List
 
 
@@ -94,6 +95,8 @@ class Model:
         with open(word2vec_pkl_path, 'rb') as f:
             self.vectors = pickle.load(f)
         self.model = None
+        self.logits_model = None
+
         self.session = None
         self.graph = None
         self.le_encoder = None
@@ -120,6 +123,8 @@ class Model:
         self.model = model
         self.le_encoder = le_encoder
         self.save(save_path)
+
+        self.logits_model = KerasModel(inputs=self.model.input, outputs=self.model.get_layer('logits').output)
 
     def save(self, path):
         '''
@@ -170,7 +175,7 @@ class Model:
         layers = self.model_cfg.get('layers', 1)
         for l in range(layers):
             self.__addLayers(model, self.model_cfg)
-        model.add(Dense(num_classes))
+        model.add(Dense(num_classes), name='logits')
         model.add(Activation('softmax'))
 
         def categorical_crossentropy_w_label_smoothing(y_true, y_pred,
@@ -230,6 +235,7 @@ class Model:
 
         self.le_encoder = preprocessing.LabelEncoder()
         self.le_encoder.classes_ = np.load(labels_file)
+        self.logits_model = KerasModel(inputs=self.model.input, outputs=self.model.get_layer('logits').output)
 
     def predict(self, input: List[str]):
         vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, input)
@@ -247,3 +253,8 @@ class Model:
                    'prob': dict(zip(self.le_encoder.classes_, probs[i]))
                    } for i, r in enumerate(results)]
         return output
+
+    def get_logits(self, input):
+        x_train = self.tokenize_and_vectorize(input)
+        logits = self.logits_model.predict(x_train)
+        return logits
