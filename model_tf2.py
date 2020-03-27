@@ -11,6 +11,7 @@ from gensim.models.keyedvectors import KeyedVectors
 from nltk.tokenize import TreebankWordTokenizer
 import re
 import pickle
+from scipy.special import softmax
 import os
 
 import yaml
@@ -53,7 +54,7 @@ def tokenize_and_vectorize(tokenizer, embedding_vector, dataset):
             try:
                 vecs.append(embedding_vector[token].tolist())
             except KeyError:
-                print('token not found: (%s) in sentence: %s' % (token, ' '.join(tokens)))
+                # print('token not found: (%s) in sentence: %s' % (token, ' '.join(tokens)))
                 if unk_vec is not None:
                     vecs.append(unk_vec)
                 continue
@@ -95,11 +96,11 @@ class Model:
         with open(word2vec_pkl_path, 'rb') as f:
             self.vectors = pickle.load(f)
         self.model = None
-        self.logits_model = None
+        # self.logits_model = None
 
-        self.session = None
-        self.graph = None
         self.le_encoder = None
+        self.labels = None
+        self.get_logits = None
 
     def train(self, tr_set_path, save_path):
         """
@@ -121,10 +122,13 @@ class Model:
                     epochs=self.model_cfg['epochs'])
         print('finished training')
         self.model = model
+        self.get_logits = K.function([self.model.layers[0].input], [self.model.layers[4].output])
         self.le_encoder = le_encoder
+        self.labels = self.le_encoder.classes_
         self.save(save_path)
+        
 
-        self.logits_model = KerasModel(inputs=self.model.input, outputs=self.model.get_layer('logits').output)
+        # self.logits_model = KerasModel(inputs=self.model.input, outputs=self.model.get_layer('logits').output)
 
     def save(self, path):
         '''
@@ -175,11 +179,10 @@ class Model:
         layers = self.model_cfg.get('layers', 1)
         for l in range(layers):
             self.__addLayers(model, self.model_cfg)
-        model.add(Dense(num_classes), name='logits')
+        model.add(Dense(num_classes, name='logits'))
         model.add(Activation('softmax'))
 
-        def categorical_crossentropy_w_label_smoothing(y_true, y_pred,
-                                                       from_logits=False, label_smoothing=0):
+        def categorical_crossentropy_w_label_smoothing(y_true, y_pred, from_logits=False, label_smoothing=0):
             y_pred = K.constant(y_pred) if not K.is_tensor(y_pred) else y_pred
             y_true = K.cast(y_true, y_pred.dtype)
 
@@ -232,10 +235,12 @@ class Model:
         self.model = model_from_json(json_string)
         self.model.load_weights(weight_file)
         self.model._make_predict_function()
+        self.get_logits = K.function([self.model.layers[0].input], [self.model.layers[4].output])
 
         self.le_encoder = preprocessing.LabelEncoder()
         self.le_encoder.classes_ = np.load(labels_file)
-        self.logits_model = KerasModel(inputs=self.model.input, outputs=self.model.get_layer('logits').output)
+        self.labels = self.le_encoder.classes_
+        # self.logits_model = KerasModel(inputs=self.model.input, outputs=self.model.get_layer('logits').output)
 
     def predict(self, input: List[str]):
         vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, input)
@@ -254,7 +259,36 @@ class Model:
                    } for i, r in enumerate(results)]
         return output
 
-    def get_logits(self, input):
-        x_train = self.tokenize_and_vectorize(input)
-        logits = self.logits_model.predict(x_train)
-        return logits
+    def predict_threshold(self, list_of_messages, undefined_logit_score=2, other_label_name='undefined'):
+        assert other_label_name not in self.labels  # the labels list should not contain the other label 
+
+        vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, list_of_messages)
+        x_train = pad_trunc(vectorized_data, self.model_cfg['maxlen'])
+        vectorized_input = np.reshape(x_train, (len(x_train), self.model_cfg['maxlen'], self.model_cfg['embedding_dims']))
+
+        logit_scores = self.get_logits([vectorized_input])[0]
+
+        other_tuple = (other_label_name, undefined_logit_score)
+
+        pred_labels = []
+        sorted_confs = []
+        for i in range(logit_scores.shape[0]):
+            label_conf_tuples = list(zip(self.labels, logit_scores[i]))
+            label_conf_tuples.append(other_tuple)
+            label_conf_tuples.sort(key=lambda x: x[1], reverse=True)
+
+            new_pred_labels_i = [x[0] for x in label_conf_tuples]
+
+            new_sorted_confs_i = [x[1] for x in label_conf_tuples]
+            # apply softmax
+            new_sorted_confs_i = softmax(new_sorted_confs_i)
+
+            # push into the lists
+            pred_labels.append(new_pred_labels_i)
+            sorted_confs.append(new_sorted_confs_i)
+        return pred_labels, sorted_confs
+
+    # def get_logits(self, input, logits_model):
+    #     x_train = self.tokenize_and_vectorize(input)
+    #     logits = logits_model.predict(x_train)
+    #     return logits
