@@ -259,12 +259,18 @@ class Model:
                    } for i, r in enumerate(results)]
         return output
 
-    def predict_threshold(self, list_of_messages, undefined_logit_score=2, other_label_name='undefined'):
-        assert other_label_name not in self.labels  # the labels list should not contain the other label 
-
+    def encode(self, list_of_messages):
         vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, list_of_messages)
         x_train = pad_trunc(vectorized_data, self.model_cfg['maxlen'])
         vectorized_input = np.reshape(x_train, (len(x_train), self.model_cfg['maxlen'], self.model_cfg['embedding_dims']))
+        return vectorized_input
+
+    def predict_threshold(self, list_of_messages, undefined_logit_score=2, other_label_name='undefined', encoded=False):
+        assert other_label_name not in self.labels  # the labels list should not contain the other label 
+        if not encoded:
+            vectorized_input = self.encode(list_of_messages)
+        else:
+            vectorized_input = list_of_messages
 
         logit_scores = self.get_logits([vectorized_input])[0]
 
