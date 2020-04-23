@@ -49,3 +49,16 @@ The output contains a list of dictionaries for each messages, recording the foll
 'input', 'embeddings', 'label', 'highestProb', 'prob'
 ```
 
+
+
+# Appendix: a design flaw in logit threshold code
+
+In `model_tf2.py`, there’s one problem with line 125:
+
+```python
+self.get_logits = K.function([self.model.layers[0].input], [self.model.layers[4].output])
+```
+
+it only works when layers is set to 1 in the `Model.__build_graph` function. To collect the Keras logit scores, we seize the output of layer 4 of the deep learning model. However, only when `layers == 1`, the layer 4 output is the logit threshold score.
+
+This is not too problematic now, because in production we always fix `layers` to 1. To fix this error. Consider if we can change layers[4] to layers[-2] (the penultimate layer of the network, which should always be the logit score layer, independent of the `layers` value).
