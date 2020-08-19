@@ -3,10 +3,12 @@ from random import shuffle
 import numpy as np
 import collections
 
-import tensorflow as tf
-from keras.layers import Dense, Dropout, Activation, Conv1D, GlobalMaxPooling1D
-from keras.models import Sequential, model_from_json
-from keras import backend as K
+#import tensorflow as tf
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior()
+from tensorflow.keras.layers import Dense, Dropout, Activation, Conv1D, GlobalMaxPooling1D
+from tensorflow.keras.models import Sequential, model_from_json
+from tensorflow.keras import backend as K
 from gensim.models.keyedvectors import KeyedVectors
 from nltk.tokenize import TreebankWordTokenizer
 import re
@@ -16,7 +18,8 @@ import os
 import yaml
 import pandas
 from typing import List
-from keras import losses
+from tensorflow.keras import losses
+from tensorflow.keras.utils import to_categorical
 
 
 def read_csv_json(file_name) -> pandas.DataFrame:
@@ -53,7 +56,7 @@ def tokenize_and_vectorize(tokenizer, embedding_vector, dataset):
             try:
                 vecs.append(embedding_vector[token].tolist())
             except KeyError:
-                print('token not found: (%s) in sentence: %s' % (token, ' '.join(tokens)))
+                #print('token not found: (%s) in sentence: %s' % (token, ' '.join(tokens)))
                 if unk_vec is not None:
                     vecs.append(unk_vec)
                 continue
@@ -100,7 +103,7 @@ def save(model, le, path):
     with open(structure_file, "w") as json_file:
         json_file.write(model.to_json())
     model.save_weights(weight_file)
-    np.save(labels_file, le.classes_)
+    np.save(labels_file, le.categories_[0])
 
 
 def load(path):
@@ -113,8 +116,10 @@ def load(path):
         model = model_from_json(json_string)
         model.load_weights(weight_file)
         model._make_predict_function()
-        le = preprocessing.LabelEncoder()
-        le.classes_ = np.load(labels_file)
+        #le = preprocessing.LabelEncoder()
+        categories = np.load(labels_file)
+        le = preprocessing.OneHotEncoder(handle_unknown='ignore', sparse=False)
+        le.fit([[c] for c in categories])
         json_file.close()
         return model, le
 
@@ -130,6 +135,7 @@ def predict(session, graph, model, vectorized_input):
         with graph.as_default():
             probs = model.predict_proba(vectorized_input)
             preds = model.predict_classes(vectorized_input)
+            preds = to_categorical(preds)
             return (probs, preds)
 
 
@@ -164,9 +170,9 @@ class Model:
             with session.as_default():
                 session.run(tf.global_variables_initializer())
                 (x_train, y_train, le_encoder) = self.__preprocess(dataset)
-                model = self.__build_model(num_classes=len(le_encoder.classes_))
-
+                model = self.__build_model(num_classes=len(le_encoder.categories_[0]))
                 print('start training')
+                import pdb; pdb.set_trace()
                 model.fit(x_train, y_train,
                           batch_size=self.model_cfg['batch_size'],
                           epochs=self.model_cfg['epochs'])
@@ -184,13 +190,16 @@ class Model:
         '''
         shuffle(dataset)
         data = [s['data'] for s in dataset]
-        labels = [s['label'] for s in dataset]
-        le_encoder = preprocessing.LabelEncoder()
+        #labels = [s['label'] for s in dataset]
+        labels = [[s['label']] for s in dataset]
+        #le_encoder = preprocessing.LabelEncoder()
+        le_encoder = preprocessing.OneHotEncoder(handle_unknown='ignore', sparse=False)
         le_encoder.fit(labels)
         encoded_labels = le_encoder.transform(labels)
-        print('train %s intents with %s samples' % (len(set(labels)), len(data)))
-        print(collections.Counter(labels))
-        print(le_encoder.classes_)
+        print('train %s intents with %s samples' % (len(le_encoder.get_feature_names()), len(data)))
+        #print('train %s intents with %s samples' % (len(set(labels)), len(data)))
+        #print(collections.Counter(labels))
+        print(le_encoder.categories_[0])
         vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, data)
 
         # split_point = int(len(vectorized_data) * .9)
@@ -214,8 +223,8 @@ class Model:
         model.add(Activation('softmax'))
 
         def categorical_crossentropy_w_label_smoothing(y_true, y_pred,
-                                                       from_logits=False, label_smoothing=0):
-            y_pred = K.constant(y_pred) if not K.is_tensor(y_pred) else y_pred
+                                                       from_logits=False, label_smoothing=0.01):
+            y_pred = K.constant(y_pred) if not tf.is_tensor(y_pred) else y_pred
             y_true = K.cast(y_true, y_pred.dtype)
 
             if label_smoothing is not 0:
@@ -228,12 +237,12 @@ class Model:
                 y_true = K.switch(K.greater(smoothing, 0), _smooth_labels, lambda: y_true)
             return K.categorical_crossentropy(y_true, y_pred, from_logits=from_logits)
 
-        # model.compile(loss=categorical_crossentropy_w_label_smoothing,
-        #               metrics=['sparse_categorical_accuracy'],
-        #               optimizer=optimizer_type)
-        model.compile(loss='sparse_categorical_crossentropy',
-                      metrics=['sparse_categorical_accuracy'],
-                      optimizer=optimizer_type)
+        model.compile(loss=losses.CategoricalCrossentropy(label_smoothing=0.01),
+                       metrics=['categorical_accuracy'],
+                       optimizer=optimizer_type)
+        #model.compile(loss='sparse_categorical_crossentropy',
+        #              metrics=['sparse_categorical_accuracy'],
+        #              optimizer=optimizer_type)
         return model
 
     def __addLayers(self, model, model_cfg):
@@ -253,7 +262,7 @@ class Model:
             strides=strides,
             input_shape=(maxlen, embedding_dims)))
         model.add(GlobalMaxPooling1D())
-        model.add(Dense(hidden_dims), name='logits')
+        model.add(Dense(hidden_dims))
         model.add(Activation(activation_type))
 
     def load(self, path):
@@ -272,14 +281,15 @@ class Model:
         vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, input)
         x_train = pad_trunc(vectorized_data, self.model_cfg['maxlen'])
         vectorized_input = np.reshape(x_train, (len(x_train), self.model_cfg['maxlen'], self.model_cfg['embedding_dims']))
-
         (probs, preds) = predict(self.session, self.graph, self.model, vectorized_input)
         probs = probs.tolist()
         results = self.le_encoder.inverse_transform(preds)
         output = [{'input': input[i],
                    'embeddings': x_train[i],
-                   'label': r,
+                   #'label': r,
+                   'label': r.item(),
                    'highestProb': max(probs[i]),
-                   'prob': dict(zip(self.le_encoder.classes_, probs[i]))
+                   #'prob': dict(zip(self.le_encoder.classes_, probs[i]))
+                   'prob': dict(zip(self.le_encoder.categories_[0], probs[i]))
                    } for i, r in enumerate(results)]
         return output
