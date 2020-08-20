@@ -11,12 +11,12 @@ os.environ["CUDA_VISIBLE_DEVICES"] = '-1'  # disable gpu. This is because on ca-
 def main():
     model = Model(word2vec_pkl_path='/data/cb_nlu_v2/vectors/wiki-news-300d-1M.pkl', config_path='config.yml')
 
-    test_model_path = '/data/cb_nlu_finserv_cross_entropy_loss_label_smoothing'
+    test_model_path = '/data/cb_nlu_finserv_cross_entropy_loss_label_smoothing/e_0.02'
     tr_set_path = '/data/starter_pack_datasets/finserv/tr.json'
     te_set_path = '/data/starter_pack_datasets/finserv/te.json'
-    #print("start training")
+    print("start training")
     ######################### training #########################
-    #model.train(tr_set_path, test_model_path)
+    model.train(tr_set_path, test_model_path)
     ######################### training ends #########################
     print("start testing")
     ######################### loading #########################
@@ -35,7 +35,7 @@ def main():
     df_te.loc[:, 'pred_intent'] = threshold_predictions
     df_te.loc[:, 'pred_score'] = [x['highestProb'] for x in output]
     df_te.loc[:, 'prob'] = [x['prob'] for x in output]
-    df_te.to_json('/data/cb_nlu_results/finserv/te_preds_xentroy_smoothing.json', orient='records', lines=True)
+    df_te.to_json('/data/cb_nlu_results/finserv/te_preds_xentroy_smoothing_0.02.json', orient='records', lines=True)
     print(classification_report(y_true=ground_truths, y_pred=threshold_predictions))
     ######################### evaluating the prediction ends #########################
 

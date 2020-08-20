@@ -172,7 +172,6 @@ class Model:
                 (x_train, y_train, le_encoder) = self.__preprocess(dataset)
                 model = self.__build_model(num_classes=len(le_encoder.categories_[0]))
                 print('start training')
-                import pdb; pdb.set_trace()
                 model.fit(x_train, y_train,
                           batch_size=self.model_cfg['batch_size'],
                           epochs=self.model_cfg['epochs'])
@@ -237,7 +236,7 @@ class Model:
                 y_true = K.switch(K.greater(smoothing, 0), _smooth_labels, lambda: y_true)
             return K.categorical_crossentropy(y_true, y_pred, from_logits=from_logits)
 
-        model.compile(loss=losses.CategoricalCrossentropy(label_smoothing=0.01),
+        model.compile(loss=losses.CategoricalCrossentropy(label_smoothing=0.02),
                        metrics=['categorical_accuracy'],
                        optimizer=optimizer_type)
         #model.compile(loss='sparse_categorical_crossentropy',
