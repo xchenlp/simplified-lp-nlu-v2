@@ -140,7 +140,7 @@ def predict(session, graph, model, vectorized_input):
 
 
 class Model:
-    def __init__(self, word2vec_pkl_path, config_path):
+    def __init__(self, word2vec_pkl_path, config_path, label_smoothing=0):
         with open(config_path, 'r') as f:
             self.model_cfg = yaml.safe_load(f)['model']
         self.tokenizer = TreebankWordTokenizer()
@@ -151,6 +151,7 @@ class Model:
         self.session = None
         self.graph = None
         self.le_encoder = None
+        self.label_smoothing = label_smoothing
 
     def train(self, tr_set_path, save_path):
         """
@@ -221,22 +222,7 @@ class Model:
         model.add(Dense(num_classes))
         model.add(Activation('softmax'))
 
-        def categorical_crossentropy_w_label_smoothing(y_true, y_pred,
-                                                       from_logits=False, label_smoothing=0.01):
-            y_pred = K.constant(y_pred) if not tf.is_tensor(y_pred) else y_pred
-            y_true = K.cast(y_true, y_pred.dtype)
-
-            if label_smoothing is not 0:
-                smoothing = K.cast_to_floatx(label_smoothing)
-
-                def _smooth_labels():
-                    num_classes = K.cast(K.shape(y_true)[1], y_pred.dtype)
-                    return y_true * (1.0 - smoothing) + (smoothing / num_classes)
-
-                y_true = K.switch(K.greater(smoothing, 0), _smooth_labels, lambda: y_true)
-            return K.categorical_crossentropy(y_true, y_pred, from_logits=from_logits)
-
-        model.compile(loss=losses.CategoricalCrossentropy(label_smoothing=0.02),
+        model.compile(loss=losses.CategoricalCrossentropy(label_smoothing=self.label_smoothing),
                        metrics=['categorical_accuracy'],
                        optimizer=optimizer_type)
         #model.compile(loss='sparse_categorical_crossentropy',
