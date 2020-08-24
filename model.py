@@ -54,7 +54,7 @@ def tokenize_and_vectorize(tokenizer, embedding_vector, dataset):
             try:
                 vecs.append(embedding_vector[token].tolist())
             except KeyError:
-                print('token not found: (%s) in sentence: %s' % (token, ' '.join(tokens)))
+                #print('token not found: (%s) in sentence: %s' % (token, ' '.join(tokens)))
                 if unk_vec is not None:
                     vecs.append(unk_vec)
                 continue
@@ -254,7 +254,7 @@ class Model:
             strides=strides,
             input_shape=(maxlen, embedding_dims)))
         model.add(GlobalMaxPooling1D())
-        model.add(Dense(hidden_dims), name='logits')
+        model.add(Dense(hidden_dims))
         model.add(Activation(activation_type))
 
     def load(self, path):
