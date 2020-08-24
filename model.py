@@ -3,10 +3,11 @@ from random import shuffle
 import numpy as np
 import collections
 
-import tensorflow as tf
-from keras.layers import Dense, Dropout, Activation, Conv1D, GlobalMaxPooling1D
-from keras.models import Sequential, model_from_json
-from keras import backend as K
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior()
+from tensorflow.keras.layers import Dense, Dropout, Activation, Conv1D, GlobalMaxPooling1D
+from tensorflow.keras.models import Sequential, model_from_json
+from tensorflow.keras import backend as K
 from gensim.models.keyedvectors import KeyedVectors
 from nltk.tokenize import TreebankWordTokenizer
 import re
@@ -16,7 +17,7 @@ import os
 import yaml
 import pandas
 from typing import List
-from keras import losses
+from tensorflow.keras import losses
 
 
 def read_csv_json(file_name) -> pandas.DataFrame:
