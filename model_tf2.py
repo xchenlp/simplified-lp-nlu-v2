@@ -253,7 +253,7 @@ class Model:
         results = self.le_encoder.inverse_transform(preds)
         output = [{'input': input[i],
                    'embeddings': x_train[i],
-                   'label': r,
+                   'label': r if r is not None else 'undefined',
                    'highestProb': max(probs[i]),
                    'prob': dict(zip(self.le_encoder.classes_, probs[i]))
                    } for i, r in enumerate(results)]
