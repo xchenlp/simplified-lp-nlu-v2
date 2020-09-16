@@ -11,6 +11,8 @@ pandas = "*"
 pyyaml = "*"
 scikit-learn = "*"
 numpy = "*"
+gensim = "*"
+nltk = "*"
 
 [requires]
 python_version = "3.6"
