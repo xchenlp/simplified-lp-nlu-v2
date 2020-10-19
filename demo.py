@@ -30,8 +30,11 @@ def main():
     ######################### evaluating the prediction #########################
     ground_truths = list(df_te.intent)
     predictions = [x['label'] for x in output]
-    threshold_predictions = [x['label'] if x['highestProb'] > 0.7 else 'undefined' for x in output]
+    scores = [x['highestProb'] for x in output]
+    threshold_predictions = [x['label'] if x['highestProb'] > 0.6 else 'undefined' for x in output]
     print(classification_report(y_true=ground_truths, y_pred=threshold_predictions))
+    df = pandas.DataFrame({'intent': ground_truths, 'pred_intent': predictions, 'pred_score': scores, 'text': df_te.text})
+    df.to_json(os.path.join(test_model_path, 'orig_preds_10.json'), lines=True, orient='records')
     ######################### evaluating the prediction ends #########################
 
 
