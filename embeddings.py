@@ -4,6 +4,7 @@ import re
 import pickle
 import os
 from pdb import set_trace
+import numpy as np
 
 
 def use_only_alphanumeric(input):
@@ -15,14 +16,8 @@ def use_only_alphanumeric(input):
 def tokenize_and_vectorize(tokenizer, embedding_vector, dataset):
     vectorized_data = []
     # probably could be optimized further
-    ds1 = [use_only_alphanumeric(samp) for samp in dataset]
+    ds1 = [use_only_alphanumeric(samp.lower()) for samp in dataset]
     token_list = [tokenizer.tokenize(sample) for sample in ds1]
-
-    unk_vec = None
-    try:
-        unk_vec = embedding_vector['UNK'].tolist()
-    except Exception as e:
-        pass
 
     for tokens in token_list:
         vecs = []
@@ -31,8 +26,9 @@ def tokenize_and_vectorize(tokenizer, embedding_vector, dataset):
                 vecs.append(embedding_vector[token].tolist())
             except KeyError:
                 print('token not found: (%s) in sentence: %s' % (token, ' '.join(tokens)))
-                if unk_vec is not None:
-                    vecs.append(unk_vec)
+                np.random.seed(hash(token) % 1000000)
+                unk_vec = np.random.rand(cfg['model']['embedding_dims'])
+                vecs.append(unk_vec.tolist())
                 continue
         vectorized_data.append(vecs)
     return vectorized_data

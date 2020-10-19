@@ -36,17 +36,11 @@ def use_only_alphanumeric(input):
     return output
 
 
-def tokenize_and_vectorize(tokenizer, embedding_vector, dataset):
+def tokenize_and_vectorize(tokenizer, embedding_vector, dataset, embedding_dims):
     vectorized_data = []
     # probably could be optimized further
-    ds1 = [use_only_alphanumeric(samp) for samp in dataset]
+    ds1 = [use_only_alphanumeric(samp.lower()) for samp in dataset]
     token_list = [tokenizer.tokenize(sample) for sample in ds1]
-
-    unk_vec = None
-    try:
-        unk_vec = embedding_vector['UNK'].tolist()
-    except Exception as e:
-        pass
 
     for tokens in token_list:
         vecs = []
@@ -54,9 +48,10 @@ def tokenize_and_vectorize(tokenizer, embedding_vector, dataset):
             try:
                 vecs.append(embedding_vector[token].tolist())
             except KeyError:
-                #print('token not found: (%s) in sentence: %s' % (token, ' '.join(tokens)))
-                if unk_vec is not None:
-                    vecs.append(unk_vec)
+                print('token not found: (%s) in sentence: %s' % (token, ' '.join(tokens)))
+                np.random.seed(hash(token) % 1000000)
+                unk_vec = np.random.rand(embedding_dims)
+                vecs.append(unk_vec.tolist())
                 continue
         vectorized_data.append(vecs)
     return vectorized_data
@@ -192,7 +187,7 @@ class Model:
         print('train %s intents with %s samples' % (len(set(labels)), len(data)))
         print(collections.Counter(labels))
         print(le_encoder.classes_)
-        vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, data)
+        vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, data, self.model_cfg['embedding_dims'])
 
         # split_point = int(len(vectorized_data) * .9)
         x_train = vectorized_data  # vectorized_data[:split_point]
