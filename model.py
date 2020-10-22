@@ -162,11 +162,24 @@ class Model:
                 (x_train, y_train, le_encoder) = self.__preprocess(dataset)
                 model = self.__build_model(num_classes=len(le_encoder.classes_))
 
+                callback = tf.keras.callbacks.EarlyStopping(
+                    monitor="val_acc",
+                    min_delta=0,
+                    patience=5,
+                    verbose=1,
+                    mode="auto",
+                    baseline=None,
+                    restore_best_weights=True,
+                )
+
                 print('start training')
-                model.fit(x_train, y_train,
+                history = model.fit(x_train, y_train,
                           batch_size=self.model_cfg['batch_size'],
-                          epochs=self.model_cfg['epochs'])
-                print('finished training')
+                          epochs=100,
+                          validation_split=0.1,
+                          callbacks=[callback])
+
+                print(f'finished training in {len(history.history["loss"])} epochs')
                 save(model, le_encoder, save_path)
                 self.model = model
                 self.session = session
