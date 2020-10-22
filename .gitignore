@@ -3,3 +3,6 @@ __pycache__
 .idea/
 test.py
 .ipynb_checkpoints
+log*
+test_fixed*
+test_random*

@@ -19,7 +19,6 @@ import pandas
 from typing import List
 from tensorflow.keras import losses
 
-
 def read_csv_json(file_name) -> pandas.DataFrame:
     if file_name.endswith('json') or file_name.endswith('jsonl'):
         df = pandas.read_json(file_name, lines=True)
@@ -48,7 +47,7 @@ def tokenize_and_vectorize(tokenizer, embedding_vector, dataset, embedding_dims)
             try:
                 vecs.append(embedding_vector[token].tolist())
             except KeyError:
-                print('token not found: (%s) in sentence: %s' % (token, ' '.join(tokens)))
+                # print('token not found: (%s) in sentence: %s' % (token, ' '.join(tokens)))
                 np.random.seed(hash(token) % 1000000)
                 unk_vec = np.random.rand(embedding_dims)
                 vecs.append(unk_vec.tolist())
@@ -163,10 +162,10 @@ class Model:
                 model = self.__build_model(num_classes=len(le_encoder.classes_))
 
                 callback = tf.keras.callbacks.EarlyStopping(
-                    monitor="val_acc",
+                    monitor="val_sparse_categorical_accuracy",
                     min_delta=0,
                     patience=5,
-                    verbose=1,
+                    verbose=0,
                     mode="auto",
                     baseline=None,
                     restore_best_weights=True,
@@ -178,7 +177,6 @@ class Model:
                           epochs=100,
                           validation_split=0.1,
                           callbacks=[callback])
-
                 print(f'finished training in {len(history.history["loss"])} epochs')
                 save(model, le_encoder, save_path)
                 self.model = model
@@ -278,7 +276,7 @@ class Model:
                 self.le_encoder = le
 
     def predict(self, input: List[str]):
-        vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, input)
+        vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, input, self.model_cfg['embedding_dims'])
         x_train = pad_trunc(vectorized_data, self.model_cfg['maxlen'])
         vectorized_input = np.reshape(x_train, (len(x_train), self.model_cfg['maxlen'], self.model_cfg['embedding_dims']))
 
