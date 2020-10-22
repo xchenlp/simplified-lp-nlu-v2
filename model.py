@@ -19,6 +19,20 @@ import pandas
 from typing import List
 from tensorflow.keras import losses
 
+from tensorflow.keras.callbacks import Callback
+from sklearn.metrics import f1_score, precision_score, recall_score
+
+class Metrics(Callback):
+    def on_train_begin(self, logs={}):
+        self.val_f1s = []
+
+    def on_epoch_end(self, epoch, logs={}):
+        val_predict = (np.asarray(self.model.predict(self.model.validation_data[0]))).round()
+        val_targ = self.model.validation_data[1]
+        _val_f1 = f1_score(val_targ, val_predict, average='macro')
+        self.val_f1s.append(_val_f1)
+        print “ — val_f1: %f” %(_val_f1)
+
 
 def read_csv_json(file_name) -> pandas.DataFrame:
     if file_name.endswith('json') or file_name.endswith('jsonl'):
@@ -48,7 +62,7 @@ def tokenize_and_vectorize(tokenizer, embedding_vector, dataset, embedding_dims)
             try:
                 vecs.append(embedding_vector[token].tolist())
             except KeyError:
-                print('token not found: (%s) in sentence: %s' % (token, ' '.join(tokens)))
+                #print('token not found: (%s) in sentence: %s' % (token, ' '.join(tokens)))
                 np.random.seed(hash(token) % 1000000)
                 unk_vec = np.random.rand(embedding_dims)
                 vecs.append(unk_vec.tolist())
@@ -163,7 +177,7 @@ class Model:
                 model = self.__build_model(num_classes=len(le_encoder.classes_))
 
                 callback = tf.keras.callbacks.EarlyStopping(
-                    monitor="val_acc",
+                    monitor="val_sparse_categorical_accuracy",
                     min_delta=0,
                     patience=5,
                     verbose=1,
@@ -240,8 +254,9 @@ class Model:
         # model.compile(loss=categorical_crossentropy_w_label_smoothing,
         #               metrics=['sparse_categorical_accuracy'],
         #               optimizer=optimizer_type)
+        custom_metrics = Metrics()
         model.compile(loss='sparse_categorical_crossentropy',
-                      metrics=['sparse_categorical_accuracy'],
+                      metrics=['sparse_categorical_accuracy', custom_metrics],
                       optimizer=optimizer_type)
         return model
 
@@ -278,7 +293,7 @@ class Model:
                 self.le_encoder = le
 
     def predict(self, input: List[str]):
-        vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, input)
+        vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, input, self.model_cfg['embedding_dims'])
         x_train = pad_trunc(vectorized_data, self.model_cfg['maxlen'])
         vectorized_input = np.reshape(x_train, (len(x_train), self.model_cfg['maxlen'], self.model_cfg['embedding_dims']))
 
