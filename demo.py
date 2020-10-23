@@ -34,7 +34,7 @@ def main():
     threshold_predictions = [x['label'] if x['highestProb'] > 0.6 else 'undefined' for x in output]
     print(classification_report(y_true=ground_truths, y_pred=threshold_predictions))
     df = pandas.DataFrame({'intent': ground_truths, 'pred_intent': predictions, 'pred_score': scores, 'text': df_te.text})
-    df.to_json(os.path.join(test_model_path, 'test_3_airlines_80_per_class.json'), lines=True, orient='records')
+    df.to_json(os.path.join(test_model_path, 'test_4_airlines_80_per_class.json'), lines=True, orient='records')
     ######################### evaluating the prediction ends #########################
 
 

@@ -18,8 +18,38 @@ import yaml
 import pandas
 from typing import List
 from tensorflow.keras import losses
-
+from sklearn.metrics import f1_score, recall_score, precision_score
+from tensorflow.keras.callbacks import Callback
+from early_stopping import EarlyStoppingAtMaxMacroF1
 SEED = 7
+
+
+
+class Metrics(Callback):
+    def __init__(self, validation):   
+        super(Metrics, self).__init__()
+        self.validation = validation    
+            
+        print('validation shape', len(self.validation[0]))
+        
+    def on_train_begin(self, logs={}):        
+        self.val_f1s = []
+        self.val_recalls = []
+        self.val_precisions = []
+     
+    def on_epoch_end(self, epoch, logs={}):
+        val_targ = self.validation[1]   
+        val_predict = self.model.predict_classes(self.validation[0])        
+        val_f1 = f1_score(val_targ, val_predict, average='macro')
+        val_recall = recall_score(val_targ, val_predict, average='macro')         
+        val_precision = precision_score(val_targ, val_predict, average='macro')
+        
+        self.val_f1s.append(round(val_f1, 6))
+        self.val_recalls.append(round(val_recall, 6))
+        self.val_precisions.append(round(val_precision, 6))
+ 
+        print(f' — val_f1: {val_f1} — val_precision: {val_precision}, — val_recall: {val_recall}')
+
 
 def read_csv_json(file_name) -> pandas.DataFrame:
     if file_name.endswith('json') or file_name.endswith('jsonl'):
@@ -166,15 +196,22 @@ class Model:
             with session.as_default():
                 session.run(tf.global_variables_initializer())
                 model = self.__build_model(num_classes=len(le_encoder.classes_))
-
+                model.compile(loss='sparse_categorical_crossentropy',
+                      #metrics=['sparse_categorical_accuracy'],
+                      optimizer=self.model_cfg.get('optimizer', 'adam'))
+                
                 callback = tf.keras.callbacks.EarlyStopping(
-                    monitor="val_sparse_categorical_accuracy",
+                    monitor="val_loss",
                     min_delta=0,
                     patience=5,
                     verbose=0,
                     mode="auto",
                     baseline=None,
                     restore_best_weights=True,
+                )
+                early_stopping = EarlyStoppingAtMaxMacroF1(
+                    patience=5,
+                    validation=(x_va, y_va)
                 )
 
                 print('start training')
@@ -183,7 +220,8 @@ class Model:
                           epochs=100,
                           validation_split=va_split if not stratified_split else 0,
                           validation_data=(x_va, y_va) if stratified_split else None,
-                          callbacks=[callback])
+                          callbacks=[early_stopping])
+                import pdb; pdb.set_trace()
                 print(f'finished training in {len(history.history["loss"])} epochs')
                 save(model, le_encoder, save_path)
                 self.model = model
@@ -220,34 +258,12 @@ class Model:
     def __build_model(self, num_classes=2, type='keras'):
         print('Build model')
         model = Sequential()
-        optimizer_type = self.model_cfg.get('optimizer', 'adam')
         layers = self.model_cfg.get('layers', 1)
         for l in range(layers):
             self.__addLayers(model, self.model_cfg)
         model.add(Dense(num_classes))
         model.add(Activation('softmax'))
 
-        def categorical_crossentropy_w_label_smoothing(y_true, y_pred,
-                                                       from_logits=False, label_smoothing=0):
-            y_pred = K.constant(y_pred) if not K.is_tensor(y_pred) else y_pred
-            y_true = K.cast(y_true, y_pred.dtype)
-
-            if label_smoothing is not 0:
-                smoothing = K.cast_to_floatx(label_smoothing)
-
-                def _smooth_labels():
-                    num_classes = K.cast(K.shape(y_true)[1], y_pred.dtype)
-                    return y_true * (1.0 - smoothing) + (smoothing / num_classes)
-
-                y_true = K.switch(K.greater(smoothing, 0), _smooth_labels, lambda: y_true)
-            return K.categorical_crossentropy(y_true, y_pred, from_logits=from_logits)
-
-        # model.compile(loss=categorical_crossentropy_w_label_smoothing,
-        #               metrics=['sparse_categorical_accuracy'],
-        #               optimizer=optimizer_type)
-        model.compile(loss='sparse_categorical_crossentropy',
-                      metrics=['sparse_categorical_accuracy'],
-                      optimizer=optimizer_type)
         return model
 
     def __addLayers(self, model, model_cfg):
