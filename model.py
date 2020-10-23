@@ -17,38 +17,9 @@ import os
 import yaml
 import pandas
 from typing import List
-from tensorflow.keras import losses
-from sklearn.metrics import f1_score, recall_score, precision_score
-from tensorflow.keras.callbacks import Callback
+from tensorflow.keras import losses, optimizers
 from early_stopping import EarlyStoppingAtMaxMacroF1
 SEED = 7
-
-
-
-class Metrics(Callback):
-    def __init__(self, validation):   
-        super(Metrics, self).__init__()
-        self.validation = validation    
-            
-        print('validation shape', len(self.validation[0]))
-        
-    def on_train_begin(self, logs={}):        
-        self.val_f1s = []
-        self.val_recalls = []
-        self.val_precisions = []
-     
-    def on_epoch_end(self, epoch, logs={}):
-        val_targ = self.validation[1]   
-        val_predict = self.model.predict_classes(self.validation[0])        
-        val_f1 = f1_score(val_targ, val_predict, average='macro')
-        val_recall = recall_score(val_targ, val_predict, average='macro')         
-        val_precision = precision_score(val_targ, val_predict, average='macro')
-        
-        self.val_f1s.append(round(val_f1, 6))
-        self.val_recalls.append(round(val_recall, 6))
-        self.val_precisions.append(round(val_precision, 6))
- 
-        print(f' — val_f1: {val_f1} — val_precision: {val_precision}, — val_recall: {val_recall}')
 
 
 def read_csv_json(file_name) -> pandas.DataFrame:
@@ -198,7 +169,9 @@ class Model:
                 model = self.__build_model(num_classes=len(le_encoder.classes_))
                 model.compile(loss='sparse_categorical_crossentropy',
                       #metrics=['sparse_categorical_accuracy'],
-                      optimizer=self.model_cfg.get('optimizer', 'adam'))
+                      optimizer=self.model_cfg.get('optimizer', 'adam') #default lr at 0.001
+                      #optimizer=optimizers.Adam(learning_rate=5e-4)
+                )
                 
                 callback = tf.keras.callbacks.EarlyStopping(
                     monitor="val_loss",
