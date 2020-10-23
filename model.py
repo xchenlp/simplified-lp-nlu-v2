@@ -153,20 +153,18 @@ class Model:
         if stratified_split:
             df_va = df_tr.groupby('intent').apply(lambda g: g.sample(frac=va_split, random_state=SEED))
             df_tr = df_tr[~df_tr.index.isin(df_va.index.get_level_values(1))]
-        
-        tr_messages, va_messages = list(df_tr.text), list(df_va.text)
-        tr_labels, va_labels = list(df_tr.intent), list(df_va.intent)
+            va_messages, va_labels = list(df_va.text), list(df_va.intent)
+            va_dataset = [{'data': va_messages[i], 'label': va_labels[i]} for i in range(len(df_va))]
+            (x_va, y_va, _) = self.__preprocess(va_dataset)
+        tr_messages, tr_labels = list(df_tr.text), list(df_tr.intent)
         tr_dataset = [{'data': tr_messages[i], 'label': tr_labels[i]} for i in range(len(df_tr))]
-        va_dataset = [{'data': va_messages[i], 'label': va_labels[i]} for i in range(len(df_va))]
-
+        (x_train, y_train, le_encoder) = self.__preprocess(tr_dataset)
         K.clear_session()
         graph = tf.Graph()
         with graph.as_default():
             session = tf.Session()
             with session.as_default():
                 session.run(tf.global_variables_initializer())
-                (x_train, y_train, le_encoder) = self.__preprocess(tr_dataset)
-                (x_va, y_va, _) = self.__preprocess(va_dataset)
                 model = self.__build_model(num_classes=len(le_encoder.classes_))
 
                 callback = tf.keras.callbacks.EarlyStopping(
@@ -183,7 +181,7 @@ class Model:
                 history = model.fit(x_train, y_train,
                           batch_size=self.model_cfg['batch_size'],
                           epochs=100,
-                          validation_split=va_split,
+                          validation_split=va_split if not stratified_split else 0,
                           validation_data=(x_va, y_va) if stratified_split else None,
                           callbacks=[callback])
                 print(f'finished training in {len(history.history["loss"])} epochs')
@@ -247,9 +245,8 @@ class Model:
         # model.compile(loss=categorical_crossentropy_w_label_smoothing,
         #               metrics=['sparse_categorical_accuracy'],
         #               optimizer=optimizer_type)
-        custom_metrics = Metrics()
         model.compile(loss='sparse_categorical_crossentropy',
-                      metrics=['sparse_categorical_accuracy', custom_metrics],
+                      metrics=['sparse_categorical_accuracy'],
                       optimizer=optimizer_type)
         return model
 

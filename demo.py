@@ -15,7 +15,7 @@ def main():
     te_set_path = '/data/starter_pack_datasets/airlines/te.json'
 
     ######################### training #########################
-    model.train(tr_set_path, test_model_path)
+    model.train(tr_set_path, test_model_path, stratified_split=True)
     ######################### training ends #########################
 
     ######################### loading #########################
@@ -34,7 +34,7 @@ def main():
     threshold_predictions = [x['label'] if x['highestProb'] > 0.6 else 'undefined' for x in output]
     print(classification_report(y_true=ground_truths, y_pred=threshold_predictions))
     df = pandas.DataFrame({'intent': ground_truths, 'pred_intent': predictions, 'pred_score': scores, 'text': df_te.text})
-    df.to_json(os.path.join(test_model_path, 'test_2_airlines_80_per_class.json'), lines=True, orient='records')
+    df.to_json(os.path.join(test_model_path, 'test_3_airlines_80_per_class.json'), lines=True, orient='records')
     ######################### evaluating the prediction ends #########################
 
 
