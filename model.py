@@ -194,7 +194,6 @@ class Model:
                           validation_split=va_split if not stratified_split else 0,
                           validation_data=(x_va, y_va) if stratified_split else None,
                           callbacks=[early_stopping])
-                import pdb; pdb.set_trace()
                 print(f'finished training in {len(history.history["loss"])} epochs')
                 save(model, le_encoder, save_path)
                 self.model = model
