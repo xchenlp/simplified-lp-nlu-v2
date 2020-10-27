@@ -1,2 +1,9 @@
 __pycache__
 find_best_smoothing_value.py
+.DS_Store
+.idea/
+test.py
+.ipynb_checkpoints
+log*
+test_fixed*
+test_random*
