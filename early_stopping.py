@@ -2,7 +2,7 @@ import tensorflow.compat.v1 as tf
 tf.disable_v2_behavior()
 
 from tensorflow.keras.callbacks import Callback
-from sklearn.metrics import f1_score, precision_score, recall_score
+from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score
 import numpy as np
 
 class EarlyStoppingAtMaxMacroF1(Callback):
@@ -31,6 +31,7 @@ class EarlyStoppingAtMaxMacroF1(Callback):
         self.val_f1s = []
         self.val_recalls = []
         self.val_precisions = []
+        self.val_accuracies = []
 
     def on_epoch_end(self, epoch, logs=None):
         val_targ = self.validation[1]   
@@ -39,12 +40,20 @@ class EarlyStoppingAtMaxMacroF1(Callback):
         val_f1 = f1_score(val_targ, val_predict, average='macro')
         val_recall = recall_score(val_targ, val_predict, average='macro')         
         val_precision = precision_score(val_targ, val_predict, average='macro')
-        
+        val_accuracy = accuracy_score(val_targ, val_predict)
+
         self.val_f1s.append(round(val_f1, 6))
         self.val_recalls.append(round(val_recall, 6))
         self.val_precisions.append(round(val_precision, 6))
+        self.val_accuracies.append(round(val_accuracy, 6))
         
-        print(f' — val_f1: {val_f1} — val_precision: {val_precision}, — val_recall: {val_recall}')
+        #ToDo: may just append to the logs, instead of writing new lists
+        logs['val_f1'] = round(val_f1, 6)
+        logs['val_recall'] = round(val_recall, 6)
+        logs['val_precision'] = round(val_precision, 6)
+        logs['val_acc'] = round(val_accuracy, 6)       
+
+        print(f' — val_f1: {val_f1} — val_precision: {val_precision}, — val_recall: {val_recall}, - val_acc: {val_accuracy}')
 
         current = val_f1
         if np.greater(current, self.best):

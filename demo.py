@@ -10,12 +10,12 @@ os.environ["CUDA_VISIBLE_DEVICES"] = '-1'  # disable gpu. This is because on ca-
 def main():
     model = Model(word2vec_pkl_path='/data/cb_nlu_v2/vectors/wiki-news-300d-1M.pkl', config_path='config.yml')
 
-    test_model_path = '/data/cb_nlu_test_model'
+    test_model_path = '/data/cb_nlu_test_model_label_smoothing'
     tr_set_path = '/data/starter_pack_datasets/airlines/tr_80_per_class.json'
     te_set_path = '/data/starter_pack_datasets/airlines/te.json'
 
     ######################### training #########################
-    model.train(tr_set_path, test_model_path, stratified_split=True)
+    model.train(tr_set_path, test_model_path, stratified_split=True, early_stopping=False)
     ######################### training ends #########################
 
     ######################### loading #########################

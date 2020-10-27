@@ -22,7 +22,7 @@ def main():
     num_runs = 2
     for i in range(num_runs):
         ######################### training #########################
-        model.train(tr_set_path, test_model_path, stratified_split=True)
+        model.train(tr_set_path, test_model_path, stratified_split=True, early_stopping=True)
         ######################### training ends #########################
 
         ######################### loading #########################

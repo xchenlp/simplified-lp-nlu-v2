@@ -19,6 +19,8 @@ import pandas
 from typing import List
 from tensorflow.keras import losses, optimizers
 from early_stopping import EarlyStoppingAtMaxMacroF1
+import json
+
 SEED = 7
 
 
@@ -84,7 +86,7 @@ def pad_trunc(data, maxlen):
     return new_data
 
 
-def save(model, le, path):
+def save(model, le, path, history):
     '''
     save model based on model, encoder
     '''
@@ -99,6 +101,8 @@ def save(model, le, path):
         json_file.write(model.to_json())
     model.save_weights(weight_file)
     np.save(labels_file, le.classes_)
+    with open(os.path.join(path, "log.json"), 'w') as f:
+        json.dump(history.history, f)
 
 
 def load(path):
@@ -144,7 +148,7 @@ class Model:
         self.graph = None
         self.le_encoder = None
 
-    def train(self, tr_set_path, save_path, va_split=0.1, stratified_split=False):
+    def train(self, tr_set_path, save_path, va_split=0.1, stratified_split=False, early_stopping=True):
         """
         Train a model for a given dataset
         Dataset should be a list of tuples consisting of
@@ -182,10 +186,10 @@ class Model:
                     baseline=None,
                     restore_best_weights=True,
                 )
-                early_stopping = EarlyStoppingAtMaxMacroF1(
-                    patience=5,
-                    validation=(x_va, y_va)
-                )
+                #callback = EarlyStoppingAtMaxMacroF1(
+                #    patience=100, # record all epochs
+                #    validation=(x_va, y_va)
+                #)
 
                 print('start training')
                 history = model.fit(x_train, y_train,
@@ -193,14 +197,17 @@ class Model:
                           epochs=100,
                           validation_split=va_split if not stratified_split else 0,
                           validation_data=(x_va, y_va) if stratified_split else None,
-                          callbacks=[early_stopping])
+                          callbacks=[callback] if early_stopping else None)
+                history.history['train_data'] = tr_set_path
                 print(f'finished training in {len(history.history["loss"])} epochs')
-                save(model, le_encoder, save_path)
+                save(model, le_encoder, save_path, history)
                 self.model = model
                 self.session = session
                 self.graph = graph
                 self.le_encoder = le_encoder
-
+                # return training history 
+                return history.history
+           
     def __preprocess(self, dataset):
         '''
         Preprocess the dataset, transform the categorical labels into numbers.
@@ -212,7 +219,7 @@ class Model:
         le_encoder = preprocessing.LabelEncoder()
         le_encoder.fit(labels)
         encoded_labels = le_encoder.transform(labels)
-        print('train %s intents with %s samples' % (len(set(labels)), len(data)))
+        print('%s intents with %s samples' % (len(set(labels)), len(data)))
         print(collections.Counter(labels))
         print(le_encoder.classes_)
         vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, data, self.model_cfg['embedding_dims'])
