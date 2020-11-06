@@ -7,16 +7,16 @@ import argparse
 os.environ["CUDA_VISIBLE_DEVICES"] = '-1'  # disable gpu. This is because on ca-gpu2, the cuDNN version is wrong for tensorflow
 
 
-def main(args):
+def main():
     f1s, accs = [], []
-    es = [0.03, 0.04, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
+    es = [0.01, 0.02, 0.03, 0.04, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
     for e in es:
         model = Model(word2vec_pkl_path='/data/cb_nlu_v2/vectors/wiki-news-300d-1M.pkl', config_path='config.yml', label_smoothing=e)
-        test_model_path = f'/data/cb_nlu_{args.vertical}_cross_entropy_loss_label_smoothing/e_{e}'
+        test_model_path = f'/data/cb_nlu_test_model_early_stopping_with_label_smoothing'
         if not os.path.exists(test_model_path):
             os.makedirs(test_model_path)
-        tr_set_path = f'/data/starter_pack_datasets/{args.vertical}/tr.json'
-        te_set_path = f'/data/starter_pack_datasets/{args.vertical}/te.json'
+        tr_set_path = f'/data/starter_pack_datasets/telco/tr_100_per_class.json'
+        te_set_path = f'/data/starter_pack_datasets/telco/te.json'
         print("start training")
         ######################### training #########################
         model.train(tr_set_path, test_model_path)
@@ -38,7 +38,7 @@ def main(args):
         df_te.loc[:, 'pred_intent'] = threshold_predictions
         df_te.loc[:, 'pred_score'] = [x['highestProb'] for x in output]
         df_te.loc[:, 'prob'] = [x['prob'] for x in output]
-        df_te.to_json(f'/data/cb_nlu_results/{args.vertical}/te_preds_xentroy_smoothing_{e}.json', orient='records', lines=True)
+        #df_te.to_json(f'/data/cb_nlu_results/telco/te_preds_xentroy_smoothing_{e}.json', orient='records', lines=True)
         print(classification_report(y_true=ground_truths, y_pred=threshold_predictions))
         f1s.append(f1_score(y_true=ground_truths, y_pred=threshold_predictions, average='macro'))
         accs.append(accuracy_score(y_true=ground_truths, y_pred=threshold_predictions))
@@ -53,7 +53,8 @@ def main(args):
     
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--vertical', required=True, type=str)
-    args = parser.parse_args()
-    main(args)
+    #parser = argparse.ArgumentParser()
+    #parser.add_argument('--vertical', required=True, type=str)
+    #args = parser.parse_args()
+#    main(args)
+    main()
