@@ -12,9 +12,9 @@ def main():
     label_variance_before, label_variance_after, F1s, ACCs, f1_stds, acc_stds, var_std_before, var_std_after \
      = [], [], [], [], [], [], [], [] 
     e_values = [0.01, 0.02, 0.03, 0.04, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
-    test_model_path = '/data/cb_nlu_test_model'
-    tr_set_path = '/data/starter_pack_datasets/telco/tr_200_per_class.json'
-    te_set_path = '/data/starter_pack_datasets/telco/te.json'
+    test_model_path = '/data/cb_nlu_test_model_with_early_stopping'
+    tr_set_path = '/data/deep-sentence-classifiers/preprocessed_data/Telstra/tr_5_intents_40_messages_per_intent.json'
+    te_set_path = '/data/deep-sentence-classifiers/preprocessed_data/Telstra/te.json'
     print(f'training data: {tr_set_path}')
     for e in e_values:
         print(f'e={e}')
