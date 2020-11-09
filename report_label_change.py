@@ -13,9 +13,10 @@ def main():
      = [], [], [], [], [], [], [], [] 
     e_values = [0.01, 0.02, 0.03, 0.04, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5]
     test_model_path = '/data/cb_nlu_test_model_with_early_stopping'
-    tr_set_path = '/data/deep-sentence-classifiers/preprocessed_data/Telstra/tr_5_intents_40_messages_per_intent.json'
-    te_set_path = '/data/deep-sentence-classifiers/preprocessed_data/Telstra/te.json'
+    tr_set_path = '/data/starter_pack_datasets/cross_vertical/tr_20_per_class.json'
+    te_set_path = '/data/starter_pack_datasets/cross_vertical/te.json'
     print(f'training data: {tr_set_path}')
+    df_tr = pd.read_json(tr_set_path, lines=True)
     for e in e_values:
         print(f'e={e}')
         model = Model(word2vec_pkl_path='/data/cb_nlu_v2/vectors/wiki-news-300d-1M.pkl', config_path='config.yml', label_smoothing=e)
@@ -35,6 +36,7 @@ def main():
 
             ######################### predicting #########################
             df_te = pd.read_json(te_set_path, lines=True)
+            df_te.loc[~df_te.intent.isin(df_tr.intent), 'intent'] = 'undefined'
             output = model.predict(list(df_te.text))
             ######################### predicting ends #########################
 
@@ -45,7 +47,7 @@ def main():
             # scores = [x['highestProb'] for x in output]
             threshold_predictions = [x['label'] if x['highestProb'] > 0.6 else 'undefined' for x in output]
             labels_after_thresholding.append(threshold_predictions)
-            # print(classification_report(y_true=ground_truths, y_pred=threshold_predictions))
+            print(classification_report(y_true=ground_truths, y_pred=threshold_predictions))
             f1s_compare.append(f1_score(y_true=ground_truths, y_pred=threshold_predictions, average='macro'))
             acc_compare.append(accuracy_score(y_true=ground_truths, y_pred=threshold_predictions))
             #df = pd.DataFrame({'intent': ground_truths, 'pred_intent': predictions, 'pred_score': scores, 'text': df_te.text})
