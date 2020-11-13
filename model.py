@@ -21,6 +21,7 @@ from tensorflow.keras.utils import to_categorical
 from tensorflow.keras import losses, optimizers
 from early_stopping import EarlyStoppingAtMaxMacroF1
 import json
+import hashlib
 
 SEED = 7
 
@@ -54,7 +55,7 @@ def tokenize_and_vectorize(tokenizer, embedding_vector, dataset, embedding_dims)
                 vecs.append(embedding_vector[token].tolist())
             except KeyError:
                 # print('token not found: (%s) in sentence: %s' % (token, ' '.join(tokens)))
-                np.random.seed(hash(token) % 1000000)
+                np.random.seed(int(hashlib.sha1(token.encode()).hexdigest(), 16) % (10 ** 6))
                 unk_vec = np.random.rand(embedding_dims)
                 vecs.append(unk_vec.tolist())
                 continue
