@@ -154,11 +154,20 @@ class Model:
         self.le_encoder = None
         self.label_smoothing = label_smoothing
 
-    def train(self, tr_set_path, save_path, va_split=0.1, stratified_split=False, early_stopping=True):
+    def train(self, tr_set_path: str, save_path: str, va_split: float=0.1, stratified_split: bool=False, early_stopping: bool=True):
         """
         Train a model for a given dataset
         Dataset should be a list of tuples consisting of
         training sentence and the class label
+        Args:
+            tr_set_path: path to training data
+            save_path: path to save model weights and labels
+            va_split: fraction of training data to be used for validation in early stopping. Only effective when stratified_split is set to False. Will be overridden if stratified_split is True. 
+            stratified_split: whether to split training data stratified by class. If True, validation will be done on a fixed val set from a stratified split out of the training set with the fraction of va_split. 
+            early_stopping: whether to do early stopping
+        Returns: 
+            history of training including average loss for each training epoch
+            
         """
         df_tr = read_csv_json(tr_set_path)
         if stratified_split:
@@ -183,7 +192,7 @@ class Model:
                       optimizer=self.model_cfg.get('optimizer', 'adam') #default lr at 0.001
                       #optimizer=optimizers.Adam(learning_rate=5e-4)
                 )
-                
+                # early stopping callback using validation loss 
                 callback = tf.keras.callbacks.EarlyStopping(
                     monitor="val_loss",
                     min_delta=0,
