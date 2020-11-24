@@ -125,7 +125,7 @@ def load(path):
         return model, le
 
 
-def predict(session, graph, model, vectorized_input):
+def predict(session, graph, model, vectorized_input, num_classes):
     if session is None:
         raise ("Session is not initialized")
     if graph is None:
@@ -136,7 +136,7 @@ def predict(session, graph, model, vectorized_input):
         with graph.as_default():
             probs = model.predict_proba(vectorized_input)
             preds = model.predict_classes(vectorized_input)
-            preds = to_categorical(preds)
+            preds = to_categorical(preds, num_classes=num_classes)
             return (probs, preds)
 
 
@@ -300,7 +300,7 @@ class Model:
         vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, input, self.model_cfg['embedding_dims'])
         x_train = pad_trunc(vectorized_data, self.model_cfg['maxlen'])
         vectorized_input = np.reshape(x_train, (len(x_train), self.model_cfg['maxlen'], self.model_cfg['embedding_dims']))
-        (probs, preds) = predict(self.session, self.graph, self.model, vectorized_input)
+        (probs, preds) = predict(self.session, self.graph, self.model, vectorized_input, len(self.le_encoder.categories_[0]))
         probs = probs.tolist()
         results = self.le_encoder.inverse_transform(preds)
         output = [{'input': input[i],
