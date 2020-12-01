@@ -1,5 +1,5 @@
 from sklearn import preprocessing
-from random import shuffle
+import random
 import numpy as np
 import collections
 
@@ -140,6 +140,32 @@ def predict(session, graph, model, vectorized_input, num_classes):
             return (probs, preds)
 
 
+def createPermutationDataSet(dataset=[], entities=[]):
+    entity_dict = {
+        d['entity_name'] : d['entity_values'] for d in entities
+    }
+    print('[createPermutationDataSet] Pre: [dataset size]: %d [num of entity]: %d' % (len(dataset), len(entities)))
+    print('[createPermutationDataSet] Entity Counter: [%s]' % ', '.join(['%s:%d' %(k,len(v)) for k,v in entity_dict.items()]))
+    permutationDS = collections.defaultdict(lambda: [])
+    resultDS = []
+    for idx, d in enumerate(dataset):
+        data = d['data']
+        label = d['label']
+        for ENT_NAME in entity_dict.keys():
+            if ENT_NAME in data:
+                for val in entity_dict[ENT_NAME]:
+                    new_data = data.replace(ENT_NAME, val)
+                    permutationDS[label].append(new_data)
+        resultDS.append({'data': data, 'label': label})
+    for label, values in permutationDS.items():
+        sample_values = values
+        if len(values) > 100:
+            sample_values = random.sample(values, 100)
+
+        [resultDS.append({'data': v, 'label': label}) for v in sample_values]
+    print('[createPermutationDataSet] Post: [dataset size]: %d ' % (len(resultDS),))
+    return resultDS
+
 class Model:
     def __init__(self, word2vec_pkl_path, config_path, label_smoothing=0):
         with open(config_path, 'r') as f:
@@ -154,7 +180,7 @@ class Model:
         self.le_encoder = None
         self.label_smoothing = label_smoothing
 
-    def train(self, tr_set_path: str, save_path: str, va_split: float=0.1, stratified_split: bool=False, early_stopping: bool=True):
+    def train(self, tr_set_path: str, save_path: str, entities_path: str=None,  va_split: float=0.1, stratified_split: bool=False, early_stopping: bool=True):
         """
         Train a model for a given dataset
         Dataset should be a list of tuples consisting of
@@ -170,6 +196,7 @@ class Model:
             
         """
         df_tr = read_csv_json(tr_set_path)
+        entities = None if entities_path is None else self.__get_entities(entities_path)
         if stratified_split:
             df_va = df_tr.groupby('intent').apply(lambda g: g.sample(frac=va_split, random_state=SEED))
             df_tr = df_tr[~df_tr.index.isin(df_va.index.get_level_values(1))]
@@ -177,12 +204,15 @@ class Model:
             va_dataset = [{'data': va_messages[i], 'label': va_labels[i]} for i in range(len(df_va))]
             tr_messages, tr_labels = list(df_tr.text), list(df_tr.intent)
             tr_dataset = [{'data': tr_messages[i], 'label': tr_labels[i]} for i in range(len(df_tr))]
-            (x_train, y_train, le_encoder) = self.__preprocess(tr_dataset)
-            (x_va, y_va, _) = self.__preprocess(va_dataset, le_encoder)
+            (x_train, y_train, le_encoder) = self.__preprocess(tr_dataset) if entities is None else \
+                                            self.__preprocess(tr_dataset, entities)
+            (x_va, y_va, _) = self.__preprocess(va_dataset, le_encoder=le_encoder) if entities is None else \
+                                            self.__preprocess(va_dataset, entities, le_encoder)
         else:
             tr_messages, tr_labels = list(df_tr.text), list(df_tr.intent)
             tr_dataset = [{'data': tr_messages[i], 'label': tr_labels[i]} for i in range(len(df_tr))]
-            (x_train, y_train, le_encoder) = self.__preprocess(tr_dataset)
+            (x_train, y_train, le_encoder) = self.__preprocess(tr_dataset) if entities is None else \
+                                            self.__preprocess(tr_dataset, entities)
 
         K.clear_session()
         graph = tf.Graph()
@@ -228,13 +258,22 @@ class Model:
                 self.le_encoder = le_encoder
                 # return training history 
                 return history.history
-           
-    def __preprocess(self, dataset, le_encoder=None):
+    
+
+    def __get_entities(entities_path: str):
+        with open(entities_path) as f:
+            entities = json.load(f)
+        return entities
+
+
+    def __preprocess(self, dataset, entities=None, le_encoder=None):
         '''
         Preprocess the dataset, transform the categorical labels into numbers.
         Get word embeddings for the training data.
         '''
-        shuffle(dataset)
+        if entities:
+            dataset = createPermutationDataSet(dataset, entities)
+        random.shuffle(dataset)
         data = [s['data'] for s in dataset]
         #labels = [s['label'] for s in dataset]
         labels = [[s['label']] for s in dataset]
