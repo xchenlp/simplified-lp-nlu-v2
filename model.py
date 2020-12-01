@@ -175,10 +175,15 @@ class Model:
             df_tr = df_tr[~df_tr.index.isin(df_va.index.get_level_values(1))]
             va_messages, va_labels = list(df_va.text), list(df_va.intent)
             va_dataset = [{'data': va_messages[i], 'label': va_labels[i]} for i in range(len(df_va))]
-            (x_va, y_va, _) = self.__preprocess(va_dataset)
-        tr_messages, tr_labels = list(df_tr.text), list(df_tr.intent)
-        tr_dataset = [{'data': tr_messages[i], 'label': tr_labels[i]} for i in range(len(df_tr))]
-        (x_train, y_train, le_encoder) = self.__preprocess(tr_dataset)
+            tr_messages, tr_labels = list(df_tr.text), list(df_tr.intent)
+            tr_dataset = [{'data': tr_messages[i], 'label': tr_labels[i]} for i in range(len(df_tr))]
+            (x_train, y_train, le_encoder) = self.__preprocess(tr_dataset)
+            (x_va, y_va, _) = self.__preprocess(va_dataset, le_encoder)
+        else:
+            tr_messages, tr_labels = list(df_tr.text), list(df_tr.intent)
+            tr_dataset = [{'data': tr_messages[i], 'label': tr_labels[i]} for i in range(len(df_tr))]
+            (x_train, y_train, le_encoder) = self.__preprocess(tr_dataset)
+
         K.clear_session()
         graph = tf.Graph()
         with graph.as_default():
@@ -224,7 +229,7 @@ class Model:
                 # return training history 
                 return history.history
            
-    def __preprocess(self, dataset):
+    def __preprocess(self, dataset, le_encoder=None):
         '''
         Preprocess the dataset, transform the categorical labels into numbers.
         Get word embeddings for the training data.
@@ -234,8 +239,9 @@ class Model:
         #labels = [s['label'] for s in dataset]
         labels = [[s['label']] for s in dataset]
         #le_encoder = preprocessing.LabelEncoder()
-        le_encoder = preprocessing.OneHotEncoder(handle_unknown='ignore', sparse=False)
-        le_encoder.fit(labels)
+        if le_encoder is None: 
+            le_encoder = preprocessing.OneHotEncoder(handle_unknown='ignore', sparse=False)
+            le_encoder.fit(labels)
         encoded_labels = le_encoder.transform(labels)
         print('%s intents with %s samples' % (len(le_encoder.get_feature_names()), len(data)))
         #print('train %s intents with %s samples' % (len(set(labels)), len(data)))
