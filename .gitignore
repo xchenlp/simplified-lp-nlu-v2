@@ -1,5 +1,9 @@
 __pycache__
+find_best_smoothing_value.py
+report_label_change.py
 .DS_Store
 .idea/
-test.py
-find_best_smoothing_value.py
+test*
+!tests
+.ipynb_checkpoints
+log*

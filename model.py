@@ -3,7 +3,6 @@ from random import shuffle
 import numpy as np
 import collections
 
-#import tensorflow as tf
 import tensorflow.compat.v1 as tf
 tf.disable_v2_behavior()
 from tensorflow.keras.layers import Dense, Dropout, Activation, Conv1D, GlobalMaxPooling1D
@@ -18,8 +17,13 @@ import os
 import yaml
 import pandas
 from typing import List
-from tensorflow.keras import losses
 from tensorflow.keras.utils import to_categorical
+from tensorflow.keras import losses, optimizers
+from early_stopping import EarlyStoppingAtMaxMacroF1
+import json
+import hashlib
+
+SEED = 7
 
 
 def read_csv_json(file_name) -> pandas.DataFrame:
@@ -38,17 +42,11 @@ def use_only_alphanumeric(input):
     return output
 
 
-def tokenize_and_vectorize(tokenizer, embedding_vector, dataset):
+def tokenize_and_vectorize(tokenizer, embedding_vector, dataset, embedding_dims):
     vectorized_data = []
     # probably could be optimized further
-    ds1 = [use_only_alphanumeric(samp) for samp in dataset]
+    ds1 = [use_only_alphanumeric(samp.lower()) for samp in dataset]
     token_list = [tokenizer.tokenize(sample) for sample in ds1]
-
-    unk_vec = None
-    try:
-        unk_vec = embedding_vector['UNK'].tolist()
-    except Exception as e:
-        pass
 
     for tokens in token_list:
         vecs = []
@@ -56,9 +54,10 @@ def tokenize_and_vectorize(tokenizer, embedding_vector, dataset):
             try:
                 vecs.append(embedding_vector[token].tolist())
             except KeyError:
-                #print('token not found: (%s) in sentence: %s' % (token, ' '.join(tokens)))
-                if unk_vec is not None:
-                    vecs.append(unk_vec)
+                # print('token not found: (%s) in sentence: %s' % (token, ' '.join(tokens)))
+                np.random.seed(int(hashlib.sha1(token.encode()).hexdigest(), 16) % (10 ** 6))
+                unk_vec = np.random.rand(embedding_dims)
+                vecs.append(unk_vec.tolist())
                 continue
         vectorized_data.append(vecs)
     return vectorized_data
@@ -89,7 +88,7 @@ def pad_trunc(data, maxlen):
     return new_data
 
 
-def save(model, le, path):
+def save(model, le, path, history):
     '''
     save model based on model, encoder
     '''
@@ -104,6 +103,8 @@ def save(model, le, path):
         json_file.write(model.to_json())
     model.save_weights(weight_file)
     np.save(labels_file, le.categories_[0])
+    with open(os.path.join(path, "log.json"), 'w') as f:
+        json.dump(history.history, f)
 
 
 def load(path):
@@ -124,7 +125,7 @@ def load(path):
         return model, le
 
 
-def predict(session, graph, model, vectorized_input):
+def predict(session, graph, model, vectorized_input, num_classes):
     if session is None:
         raise ("Session is not initialized")
     if graph is None:
@@ -135,7 +136,7 @@ def predict(session, graph, model, vectorized_input):
         with graph.as_default():
             probs = model.predict_proba(vectorized_input)
             preds = model.predict_classes(vectorized_input)
-            preds = to_categorical(preds)
+            preds = to_categorical(preds, num_classes=num_classes)
             return (probs, preds)
 
 
@@ -153,16 +154,35 @@ class Model:
         self.le_encoder = None
         self.label_smoothing = label_smoothing
 
-    def train(self, tr_set_path, save_path):
+    def train(self, tr_set_path: str, save_path: str, va_split: float=0.1, stratified_split: bool=False, early_stopping: bool=True):
         """
         Train a model for a given dataset
         Dataset should be a list of tuples consisting of
         training sentence and the class label
+        Args:
+            tr_set_path: path to training data
+            save_path: path to save model weights and labels
+            va_split: fraction of training data to be used for validation in early stopping. Only effective when stratified_split is set to False. Will be overridden if stratified_split is True. 
+            stratified_split: whether to split training data stratified by class. If True, validation will be done on a fixed val set from a stratified split out of the training set with the fraction of va_split. 
+            early_stopping: whether to do early stopping
+        Returns: 
+            history of training including average loss for each training epoch
+            
         """
         df_tr = read_csv_json(tr_set_path)
-        messages = list(df_tr.text)
-        labels = list(df_tr.intent)
-        dataset = [{'data': messages[i], 'label': labels[i]} for i in range(len(df_tr))]
+        if stratified_split:
+            df_va = df_tr.groupby('intent').apply(lambda g: g.sample(frac=va_split, random_state=SEED))
+            df_tr = df_tr[~df_tr.index.isin(df_va.index.get_level_values(1))]
+            va_messages, va_labels = list(df_va.text), list(df_va.intent)
+            va_dataset = [{'data': va_messages[i], 'label': va_labels[i]} for i in range(len(df_va))]
+            tr_messages, tr_labels = list(df_tr.text), list(df_tr.intent)
+            tr_dataset = [{'data': tr_messages[i], 'label': tr_labels[i]} for i in range(len(df_tr))]
+            (x_train, y_train, le_encoder) = self.__preprocess(tr_dataset)
+            (x_va, y_va, _) = self.__preprocess(va_dataset, le_encoder)
+        else:
+            tr_messages, tr_labels = list(df_tr.text), list(df_tr.intent)
+            tr_dataset = [{'data': tr_messages[i], 'label': tr_labels[i]} for i in range(len(df_tr))]
+            (x_train, y_train, le_encoder) = self.__preprocess(tr_dataset)
 
         K.clear_session()
         graph = tf.Graph()
@@ -170,20 +190,46 @@ class Model:
             session = tf.Session()
             with session.as_default():
                 session.run(tf.global_variables_initializer())
-                (x_train, y_train, le_encoder) = self.__preprocess(dataset)
                 model = self.__build_model(num_classes=len(le_encoder.categories_[0]))
+                model.compile(
+                      loss=losses.CategoricalCrossentropy(label_smoothing=self.label_smoothing),
+                      #metrics=['categorical_accuracy'],
+                      optimizer=self.model_cfg.get('optimizer', 'adam') #default lr at 0.001
+                      #optimizer=optimizers.Adam(learning_rate=5e-4)
+                )
+                # early stopping callback using validation loss 
+                callback = tf.keras.callbacks.EarlyStopping(
+                    monitor="val_loss",
+                    min_delta=0,
+                    patience=5,
+                    verbose=0,
+                    mode="auto",
+                    baseline=None,
+                    restore_best_weights=True,
+                )
+                #callback = EarlyStoppingAtMaxMacroF1(
+                #    patience=100, # record all epochs
+                #    validation=(x_va, y_va)
+                #)
+
                 print('start training')
-                model.fit(x_train, y_train,
+                history = model.fit(x_train, y_train,
                           batch_size=self.model_cfg['batch_size'],
-                          epochs=self.model_cfg['epochs'])
-                print('finished training')
-                save(model, le_encoder, save_path)
+                          epochs=100,
+                          validation_split=va_split if not stratified_split else 0,
+                          validation_data=(x_va, y_va) if stratified_split else None,
+                          callbacks=[callback] if early_stopping else None)
+                history.history['train_data'] = tr_set_path
+                print(f'finished training in {len(history.history["loss"])} epochs')
+                save(model, le_encoder, save_path, history)
                 self.model = model
                 self.session = session
                 self.graph = graph
                 self.le_encoder = le_encoder
-
-    def __preprocess(self, dataset):
+                # return training history 
+                return history.history
+           
+    def __preprocess(self, dataset, le_encoder=None):
         '''
         Preprocess the dataset, transform the categorical labels into numbers.
         Get word embeddings for the training data.
@@ -193,14 +239,15 @@ class Model:
         #labels = [s['label'] for s in dataset]
         labels = [[s['label']] for s in dataset]
         #le_encoder = preprocessing.LabelEncoder()
-        le_encoder = preprocessing.OneHotEncoder(handle_unknown='ignore', sparse=False)
-        le_encoder.fit(labels)
+        if le_encoder is None: 
+            le_encoder = preprocessing.OneHotEncoder(handle_unknown='ignore', sparse=False)
+            le_encoder.fit(labels)
         encoded_labels = le_encoder.transform(labels)
-        print('train %s intents with %s samples' % (len(le_encoder.get_feature_names()), len(data)))
+        print('%s intents with %s samples' % (len(le_encoder.get_feature_names()), len(data)))
         #print('train %s intents with %s samples' % (len(set(labels)), len(data)))
         #print(collections.Counter(labels))
         print(le_encoder.categories_[0])
-        vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, data)
+        vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, data, self.model_cfg['embedding_dims'])
 
         # split_point = int(len(vectorized_data) * .9)
         x_train = vectorized_data  # vectorized_data[:split_point]
@@ -215,19 +262,12 @@ class Model:
     def __build_model(self, num_classes=2, type='keras'):
         print('Build model')
         model = Sequential()
-        optimizer_type = self.model_cfg.get('optimizer', 'adam')
         layers = self.model_cfg.get('layers', 1)
         for l in range(layers):
             self.__addLayers(model, self.model_cfg)
         model.add(Dense(num_classes))
         model.add(Activation('softmax'))
 
-        model.compile(loss=losses.CategoricalCrossentropy(label_smoothing=self.label_smoothing),
-                       metrics=['categorical_accuracy'],
-                       optimizer=optimizer_type)
-        #model.compile(loss='sparse_categorical_crossentropy',
-        #              metrics=['sparse_categorical_accuracy'],
-        #              optimizer=optimizer_type)
         return model
 
     def __addLayers(self, model, model_cfg):
@@ -263,10 +303,10 @@ class Model:
                 self.le_encoder = le
 
     def predict(self, input: List[str]):
-        vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, input)
+        vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, input, self.model_cfg['embedding_dims'])
         x_train = pad_trunc(vectorized_data, self.model_cfg['maxlen'])
         vectorized_input = np.reshape(x_train, (len(x_train), self.model_cfg['maxlen'], self.model_cfg['embedding_dims']))
-        (probs, preds) = predict(self.session, self.graph, self.model, vectorized_input)
+        (probs, preds) = predict(self.session, self.graph, self.model, vectorized_input, len(self.le_encoder.categories_[0]))
         probs = probs.tolist()
         results = self.le_encoder.inverse_transform(preds)
         output = [{'input': input[i],
