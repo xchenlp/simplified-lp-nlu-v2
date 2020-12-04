@@ -23,6 +23,8 @@ from early_stopping import EarlyStoppingAtMaxMacroF1
 import json
 import hashlib
 
+from encoder import Encoder
+
 SEED = 7
 
 
@@ -167,18 +169,22 @@ def createPermutationDataSet(dataset=[], entities=[]):
     return resultDS
 
 class Model:
-    def __init__(self, word2vec_pkl_path, config_path, label_smoothing=0):
+    def __init__(self, word2vec_pkl_path=None, config_path='./config.yml', label_smoothing=0, encoder_type='fasttext', gpu_id=-1):
         with open(config_path, 'r') as f:
             self.model_cfg = yaml.safe_load(f)['model']
-        self.tokenizer = TreebankWordTokenizer()
+        if encoder_type == 'fasttext':
+            self.tokenizer = TreebankWordTokenizer()
 
-        with open(word2vec_pkl_path, 'rb') as f:
-            self.vectors = pickle.load(f)
+            with open(word2vec_pkl_path, 'rb') as f:
+                self.vectors = pickle.load(f)
         self.model = None
         self.session = None
         self.graph = None
-        self.le_encoder = None
+        self.le_encoder = None # label encoder
+        self.encoder = None
         self.label_smoothing = label_smoothing
+        self.encoder_type = encoder_type
+        self.gpu_id = gpu_id
 
     def train(self, tr_set_path: str, save_path: str, entities_path: str=None,  va_split: float=0.1, stratified_split: bool=False, early_stopping: bool=True):
         """
@@ -286,17 +292,30 @@ class Model:
         #print('train %s intents with %s samples' % (len(set(labels)), len(data)))
         #print(collections.Counter(labels))
         print(le_encoder.categories_[0])
-        vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, data, self.model_cfg['embedding_dims'])
 
-        # split_point = int(len(vectorized_data) * .9)
-        x_train = vectorized_data  # vectorized_data[:split_point]
         y_train = encoded_labels  # encoded_labels[:split_point]
-
-        x_train = pad_trunc(x_train, self.model_cfg['maxlen'])
-
-        x_train = np.reshape(x_train, (len(x_train), self.model_cfg['maxlen'], self.model_cfg['embedding_dims']))
         y_train = np.array(y_train)
+
+        # tokenize and encode
+        if self.encoder_type == 'fasttext':
+            vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, data, self.model_cfg['embedding_dims'])
+
+            # split_point = int(len(vectorized_data) * .9)
+            x_train = vectorized_data  # vectorized_data[:split_point]
+            x_train = pad_trunc(x_train, self.model_cfg['maxlen'])
+            x_train = np.reshape(x_train, (len(x_train), self.model_cfg['maxlen'], self.model_cfg['embedding_dims']))
+            
+        elif self.encoder_type == 'transformer':
+            encoder = Encoder('distilmbert', max_sent_len=self.model_cfg['embedding_dims'], pad_to_max_sent_len=True, gpu_id=self.gpu_id)
+            x_train = encoder(data)
+            # convert to numpy array for Keras classifier
+            x_train = x_train.cpu().detach().numpy()
+
+        else:
+            raise NotImplementedError("encoder type not recognized")
+
         return x_train, y_train, le_encoder
+
 
     def __build_model(self, num_classes=2, type='keras'):
         print('Build model')
@@ -312,7 +331,7 @@ class Model:
     def __addLayers(self, model, model_cfg):
         maxlen = model_cfg.get('maxlen', 400)
         strides = model_cfg.get('strides', 1)
-        embedding_dims = model_cfg.get('embedding_dims', 300)
+        embedding_dims = model_cfg.get('embedding_dims', 300) if self.encoder_type == 'fasttext' else 768 # DistilBERT
         filters = model_cfg.get('filters', 250)
         activation_type = model_cfg.get('activation', 'relu')
         kernel_size = model_cfg.get('kernel_size', 3)
@@ -342,9 +361,16 @@ class Model:
                 self.le_encoder = le
 
     def predict(self, input: List[str]):
-        vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, input, self.model_cfg['embedding_dims'])
-        x_train = pad_trunc(vectorized_data, self.model_cfg['maxlen'])
-        vectorized_input = np.reshape(x_train, (len(x_train), self.model_cfg['maxlen'], self.model_cfg['embedding_dims']))
+        if self.encoder_type == 'fasttext':
+            vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, input, self.model_cfg['embedding_dims'])
+            x_train = pad_trunc(vectorized_data, self.model_cfg['maxlen'])
+            vectorized_input = np.reshape(x_train, (len(x_train), self.model_cfg['maxlen'], self.model_cfg['embedding_dims']))
+        elif self.encoder_type == 'transformer':
+            encoder = Encoder('distilmbert', max_sent_len=self.model_cfg['embedding_dims'], gpu_id=self.gpu_id)
+            x_train = encoder(input)
+            # convert to numpy array for Keras classifier
+            x_train = x_train.cpu().detach().numpy()
+
         (probs, preds) = predict(self.session, self.graph, self.model, vectorized_input, len(self.le_encoder.categories_[0]))
         probs = probs.tolist()
         results = self.le_encoder.inverse_transform(preds)
