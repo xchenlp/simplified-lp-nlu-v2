@@ -306,7 +306,7 @@ class Model:
             x_train = np.reshape(x_train, (len(x_train), self.model_cfg['maxlen'], self.model_cfg['embedding_dims']))
             
         elif self.encoder_type == 'transformer':
-            encoder = Encoder('distilmbert', max_sent_len=self.model_cfg['embedding_dims'], pad_to_max_sent_len=True, gpu_id=self.gpu_id)
+            encoder = Encoder('distilmbert', max_sent_len=self.model_cfg['maxlen'], pad_to_max_sent_len=True, gpu_id=self.gpu_id)
             x_train = encoder(data)
             # convert to numpy array for Keras classifier
             x_train = x_train.cpu().detach().numpy()

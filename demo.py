@@ -8,7 +8,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = '-1'  # disable gpu. This is because on ca-
 
 
 def main():
-    model = Model(word2vec_pkl_path='/data/cb_nlu_v2/vectors/wiki-news-300d-1M.pkl', config_path='config.yml')
+    model = Model(word2vec_pkl_path='/data/cb_nlu_v2/vectors/wiki-news-300d-1M.pkl', config_path='config.yml', encoder_type='transformer')
 
     test_model_path = '/data/cb_nlu_test_model_label_smoothing'
     tr_set_path = '/data/starter_pack_datasets/airlines/tr_80_per_class.json'
@@ -36,8 +36,8 @@ def main():
     scores = [x['highestProb'] for x in output]
     threshold_predictions = [x['label'] if x['highestProb'] > 0.6 else 'undefined' for x in output]
     print(classification_report(y_true=ground_truths, y_pred=threshold_predictions))
-    df = pandas.DataFrame({'intent': ground_truths, 'pred_intent': predictions, 'pred_score': scores, 'text': df_te.text})
-    df.to_json(os.path.join(test_model_path, 'test_4_airlines_80_per_class.json'), lines=True, orient='records')
+    #df = pandas.DataFrame({'intent': ground_truths, 'pred_intent': predictions, 'pred_score': scores, 'text': df_te.text})
+    #df.to_json(os.path.join(test_model_path, 'test_4_airlines_80_per_class.json'), lines=True, orient='records')
     ######################### evaluating the prediction ends #########################
     
 
