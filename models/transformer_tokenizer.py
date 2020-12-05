@@ -3,7 +3,7 @@ import torch.nn
 from typing import List, Tuple
 import numpy
 
-from lp_nlu.file_utils import transformer_base_model_names, transformer_tokenizers
+from file_utils import transformer_base_model_names, transformer_tokenizers
 
 
 class TransformerTokenizer(torch.nn.Module):

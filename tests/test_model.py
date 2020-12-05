@@ -27,7 +27,8 @@ def test_tokenize_and_vectorize():
 
 
 def test_preprocess(model):
-    data = ['This is a test data 1', 'This is test data']
-    x_train, y_train, label_encoder = model.__preprocess(data)
+    data = [{'data': 'This is a test data 1', 'label': '1'}, {'data': 'This is test data', 'label': '2'}]
+    import pdb; pdb.set_trace()
+    x_train, y_train, label_encoder = model.preprocess(data)
     import pdb; pdb.set_trace()
     assert x_train.shape == (2, 400, 768)

@@ -1,16 +1,15 @@
 import os
-from lp_nlu.models.elmo import Elmo
-from lp_nlu.models.fasttext import Fasttext
+from models.elmo import Elmo
+from models.fasttext import Fasttext
 import logging
 import torch
-from lp_nlu.models.transformer import Transformer
-from lp_nlu.file_utils import transformer_types
+from models.transformer import Transformer
+from file_utils import transformer_types
 from torch import nn
 from typing import Union, List
-from lp_nlu.models.elmo_tokenizer import ElmoTokenizer
-from lp_nlu.models.fasttext_tokenizer import FasttextTokenizer
-from lp_nlu.models.transformer_tokenizer import TransformerTokenizer
-from lp_nlu.file_utils import transformer_types
+from models.elmo_tokenizer import ElmoTokenizer
+from models.fasttext_tokenizer import FasttextTokenizer
+from models.transformer_tokenizer import TransformerTokenizer
 
 
 logger = logging.getLogger(__name__)

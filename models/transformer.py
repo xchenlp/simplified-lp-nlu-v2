@@ -1,5 +1,5 @@
 import torch
-from lp_nlu.file_utils import transformer_base_model_names, transformer_encoders
+from file_utils import transformer_base_model_names, transformer_encoders
 
 
 class Transformer(torch.nn.Module):
