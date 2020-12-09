@@ -1,8 +1,14 @@
-from model import tokenize_and_vectorize
+from model import tokenize_and_vectorize, Model
 from nltk.tokenize import TreebankWordTokenizer
 import numpy as np
+import pytest
 SEED = 7
 np.random.seed(SEED)
+
+@pytest.fixture
+def model():
+    return Model(encoder_type='transformer', gpu_id=-1)
+
 
 
 def test_tokenize_and_vectorize():
@@ -17,3 +23,12 @@ def test_tokenize_and_vectorize():
     ]
     vecs = tokenize_and_vectorize(tokenizer, embedding_vector, dataset, 300)
     import pdb; pdb.set_trace()
+
+
+
+def test_preprocess(model):
+    data = [{'data': 'This is a test data 1', 'label': '1'}, {'data': 'This is test data', 'label': '2'}]
+    import pdb; pdb.set_trace()
+    x_train, y_train, label_encoder = model.preprocess(data)
+    import pdb; pdb.set_trace()
+    assert x_train.shape == (2, 400, 768)

@@ -1,5 +1,5 @@
 from sklearn import preprocessing
-from random import shuffle
+import random
 import numpy as np
 import collections
 
@@ -22,6 +22,10 @@ from tensorflow.keras import losses, optimizers
 from early_stopping import EarlyStoppingAtMaxMacroF1
 import json
 import hashlib
+import math
+import torch
+
+from encoder import Encoder
 
 SEED = 7
 
@@ -118,7 +122,7 @@ def load(path):
         model.load_weights(weight_file)
         model._make_predict_function()
         #le = preprocessing.LabelEncoder()
-        categories = np.load(labels_file)
+        categories = np.load(labels_file, allow_pickle=True)
         le = preprocessing.OneHotEncoder(handle_unknown='ignore', sparse=False)
         le.fit([[c] for c in categories])
         json_file.close()
@@ -140,21 +144,51 @@ def predict(session, graph, model, vectorized_input, num_classes):
             return (probs, preds)
 
 
+def createPermutationDataSet(dataset=[], entities=[]):
+    entity_dict = {
+        d['entity_name'] : d['entity_values'] for d in entities
+    }
+    print('[createPermutationDataSet] Pre: [dataset size]: %d [num of entity]: %d' % (len(dataset), len(entities)))
+    print('[createPermutationDataSet] Entity Counter: [%s]' % ', '.join(['%s:%d' %(k,len(v)) for k,v in entity_dict.items()]))
+    permutationDS = collections.defaultdict(lambda: [])
+    resultDS = []
+    for idx, d in enumerate(dataset):
+        data = d['data']
+        label = d['label']
+        for ENT_NAME in entity_dict.keys():
+            if ENT_NAME in data:
+                for val in entity_dict[ENT_NAME]:
+                    new_data = data.replace(ENT_NAME, val)
+                    permutationDS[label].append(new_data)
+        resultDS.append({'data': data, 'label': label})
+    for label, values in permutationDS.items():
+        sample_values = values
+        if len(values) > 100:
+            sample_values = random.sample(values, 100)
+
+        [resultDS.append({'data': v, 'label': label}) for v in sample_values]
+    print('[createPermutationDataSet] Post: [dataset size]: %d ' % (len(resultDS),))
+    return resultDS
+
 class Model:
-    def __init__(self, word2vec_pkl_path, config_path, label_smoothing=0):
+    def __init__(self, word2vec_pkl_path=None, config_path='./config.yml', label_smoothing=0, encoder_type='fasttext', gpu_id=-1):
         with open(config_path, 'r') as f:
             self.model_cfg = yaml.safe_load(f)['model']
-        self.tokenizer = TreebankWordTokenizer()
+        if encoder_type == 'fasttext':
+            self.tokenizer = TreebankWordTokenizer()
 
-        with open(word2vec_pkl_path, 'rb') as f:
-            self.vectors = pickle.load(f)
+            with open(word2vec_pkl_path, 'rb') as f:
+                self.vectors = pickle.load(f)
         self.model = None
         self.session = None
         self.graph = None
-        self.le_encoder = None
+        self.le_encoder = None # label encoder
+        self.encoder = None
         self.label_smoothing = label_smoothing
+        self.encoder_type = encoder_type
+        self.gpu_id = gpu_id
 
-    def train(self, tr_set_path: str, save_path: str, va_split: float=0.1, stratified_split: bool=False, early_stopping: bool=True):
+    def train(self, tr_set_path: str, save_path: str, entities_path: str=None,  va_split: float=0.1, stratified_split: bool=False, early_stopping: bool=True):
         """
         Train a model for a given dataset
         Dataset should be a list of tuples consisting of
@@ -170,6 +204,7 @@ class Model:
             
         """
         df_tr = read_csv_json(tr_set_path)
+        entities = None if entities_path is None else self.__get_entities(entities_path)
         if stratified_split:
             df_va = df_tr.groupby('intent').apply(lambda g: g.sample(frac=va_split, random_state=SEED))
             df_tr = df_tr[~df_tr.index.isin(df_va.index.get_level_values(1))]
@@ -177,12 +212,15 @@ class Model:
             va_dataset = [{'data': va_messages[i], 'label': va_labels[i]} for i in range(len(df_va))]
             tr_messages, tr_labels = list(df_tr.text), list(df_tr.intent)
             tr_dataset = [{'data': tr_messages[i], 'label': tr_labels[i]} for i in range(len(df_tr))]
-            (x_train, y_train, le_encoder) = self.__preprocess(tr_dataset)
-            (x_va, y_va, _) = self.__preprocess(va_dataset, le_encoder)
+            (x_train, y_train, le_encoder) = self.__preprocess(tr_dataset) if entities is None else \
+                                            self.__preprocess(tr_dataset, entities)
+            (x_va, y_va, _) = self.__preprocess(va_dataset, le_encoder=le_encoder) if entities is None else \
+                                            self.__preprocess(va_dataset, entities, le_encoder)
         else:
             tr_messages, tr_labels = list(df_tr.text), list(df_tr.intent)
             tr_dataset = [{'data': tr_messages[i], 'label': tr_labels[i]} for i in range(len(df_tr))]
-            (x_train, y_train, le_encoder) = self.__preprocess(tr_dataset)
+            (x_train, y_train, le_encoder) = self.__preprocess(tr_dataset) if entities is None else \
+                                            self.__preprocess(tr_dataset, entities)
 
         K.clear_session()
         graph = tf.Graph()
@@ -228,13 +266,22 @@ class Model:
                 self.le_encoder = le_encoder
                 # return training history 
                 return history.history
-           
-    def __preprocess(self, dataset, le_encoder=None):
+    
+
+    def __get_entities(entities_path: str):
+        with open(entities_path) as f:
+            entities = json.load(f)
+        return entities
+
+
+    def __preprocess(self, dataset, entities=None, le_encoder=None):
         '''
         Preprocess the dataset, transform the categorical labels into numbers.
         Get word embeddings for the training data.
         '''
-        shuffle(dataset)
+        if entities:
+            dataset = createPermutationDataSet(dataset, entities)
+        random.shuffle(dataset)
         data = [s['data'] for s in dataset]
         #labels = [s['label'] for s in dataset]
         labels = [[s['label']] for s in dataset]
@@ -247,17 +294,39 @@ class Model:
         #print('train %s intents with %s samples' % (len(set(labels)), len(data)))
         #print(collections.Counter(labels))
         print(le_encoder.categories_[0])
-        vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, data, self.model_cfg['embedding_dims'])
 
-        # split_point = int(len(vectorized_data) * .9)
-        x_train = vectorized_data  # vectorized_data[:split_point]
         y_train = encoded_labels  # encoded_labels[:split_point]
-
-        x_train = pad_trunc(x_train, self.model_cfg['maxlen'])
-
-        x_train = np.reshape(x_train, (len(x_train), self.model_cfg['maxlen'], self.model_cfg['embedding_dims']))
         y_train = np.array(y_train)
+
+        # tokenize and encode
+        if self.encoder_type == 'fasttext':
+            vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, data, self.model_cfg['embedding_dims'])
+
+            # split_point = int(len(vectorized_data) * .9)
+            x_train = vectorized_data  # vectorized_data[:split_point]
+            x_train = pad_trunc(x_train, self.model_cfg['maxlen'])
+            x_train = np.reshape(x_train, (len(x_train), self.model_cfg['maxlen'], self.model_cfg['embedding_dims']))
+            
+        elif self.encoder_type == 'transformer':
+            encoder = Encoder('distilmbert', max_sent_len=self.model_cfg['maxlen'], pad_to_max_sent_len=True, gpu_id=self.gpu_id)
+            x_train = self.__encode_batch(encoder, data)
+
+        else:
+            raise NotImplementedError("encoder type not recognized")
+
         return x_train, y_train, le_encoder
+
+    @torch.no_grad()
+    def __encode_batch(self, encoder, data):
+        num_of_batches = math.ceil(len(data)/self.model_cfg['batch_size'])
+        batches = []
+        for i in range(num_of_batches):
+            x_train = encoder(data[i*self.model_cfg['batch_size']: (i+1)*self.model_cfg['batch_size']])
+            # convert to numpy array for Keras classifier
+            x_train = x_train.cpu().detach().numpy()
+            batches.append(x_train)
+        return np.concatenate(batches)
+
 
     def __build_model(self, num_classes=2, type='keras'):
         print('Build model')
@@ -273,7 +342,7 @@ class Model:
     def __addLayers(self, model, model_cfg):
         maxlen = model_cfg.get('maxlen', 400)
         strides = model_cfg.get('strides', 1)
-        embedding_dims = model_cfg.get('embedding_dims', 300)
+        embedding_dims = model_cfg.get('embedding_dims', 300) if self.encoder_type == 'fasttext' else 768 # DistilBERT
         filters = model_cfg.get('filters', 250)
         activation_type = model_cfg.get('activation', 'relu')
         kernel_size = model_cfg.get('kernel_size', 3)
@@ -303,14 +372,20 @@ class Model:
                 self.le_encoder = le
 
     def predict(self, input: List[str]):
-        vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, input, self.model_cfg['embedding_dims'])
-        x_train = pad_trunc(vectorized_data, self.model_cfg['maxlen'])
-        vectorized_input = np.reshape(x_train, (len(x_train), self.model_cfg['maxlen'], self.model_cfg['embedding_dims']))
+        if self.encoder_type == 'fasttext':
+            vectorized_data = tokenize_and_vectorize(self.tokenizer, self.vectors, input, self.model_cfg['embedding_dims'])
+            x_train = pad_trunc(vectorized_data, self.model_cfg['maxlen'])
+            vectorized_input = np.reshape(x_train, (len(x_train), self.model_cfg['maxlen'], self.model_cfg['embedding_dims']))
+        elif self.encoder_type == 'transformer':
+            encoder = Encoder('distilmbert', max_sent_len=self.model_cfg['maxlen'], pad_to_max_sent_len=True, gpu_id=self.gpu_id)
+            encoder.eval()
+            vectorized_input = self.__encode_batch(encoder, input)
+
         (probs, preds) = predict(self.session, self.graph, self.model, vectorized_input, len(self.le_encoder.categories_[0]))
         probs = probs.tolist()
         results = self.le_encoder.inverse_transform(preds)
         output = [{'input': input[i],
-                   'embeddings': x_train[i],
+                   # 'embeddings': x_train[i],
                    #'label': r,
                    'label': r.item(),
                    'highestProb': max(probs[i]),
