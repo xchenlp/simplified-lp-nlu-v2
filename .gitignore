@@ -1,4 +1,5 @@
 __pycache__
+.python-version
 find_best_smoothing_value.py
 report_label_change.py
 .DS_Store

@@ -22,6 +22,8 @@ from tensorflow.keras import losses, optimizers
 from early_stopping import EarlyStoppingAtMaxMacroF1
 import json
 import hashlib
+import math
+import torch
 
 from encoder import Encoder
 
@@ -120,7 +122,7 @@ def load(path):
         model.load_weights(weight_file)
         model._make_predict_function()
         #le = preprocessing.LabelEncoder()
-        categories = np.load(labels_file)
+        categories = np.load(labels_file, allow_pickle=True)
         le = preprocessing.OneHotEncoder(handle_unknown='ignore', sparse=False)
         le.fit([[c] for c in categories])
         json_file.close()
@@ -307,14 +309,23 @@ class Model:
             
         elif self.encoder_type == 'transformer':
             encoder = Encoder('distilmbert', max_sent_len=self.model_cfg['maxlen'], pad_to_max_sent_len=True, gpu_id=self.gpu_id)
-            x_train = encoder(data)
-            # convert to numpy array for Keras classifier
-            x_train = x_train.cpu().detach().numpy()
+            x_train = self.__encode_batch(encoder, data)
 
         else:
             raise NotImplementedError("encoder type not recognized")
 
         return x_train, y_train, le_encoder
+
+    @torch.no_grad()
+    def __encode_batch(self, encoder, data):
+        num_of_batches = math.ceil(len(data)/self.model_cfg['batch_size'])
+        batches = []
+        for i in range(num_of_batches):
+            x_train = encoder(data[i*self.model_cfg['batch_size']: (i+1)*self.model_cfg['batch_size']])
+            # convert to numpy array for Keras classifier
+            x_train = x_train.cpu().detach().numpy()
+            batches.append(x_train)
+        return np.concatenate(batches)
 
 
     def __build_model(self, num_classes=2, type='keras'):
@@ -366,16 +377,15 @@ class Model:
             x_train = pad_trunc(vectorized_data, self.model_cfg['maxlen'])
             vectorized_input = np.reshape(x_train, (len(x_train), self.model_cfg['maxlen'], self.model_cfg['embedding_dims']))
         elif self.encoder_type == 'transformer':
-            encoder = Encoder('distilmbert', max_sent_len=self.model_cfg['embedding_dims'], gpu_id=self.gpu_id)
-            x_train = encoder(input)
-            # convert to numpy array for Keras classifier
-            x_train = x_train.cpu().detach().numpy()
+            encoder = Encoder('distilmbert', max_sent_len=self.model_cfg['maxlen'], pad_to_max_sent_len=True, gpu_id=self.gpu_id)
+            encoder.eval()
+            vectorized_input = self.__encode_batch(encoder, input)
 
         (probs, preds) = predict(self.session, self.graph, self.model, vectorized_input, len(self.le_encoder.categories_[0]))
         probs = probs.tolist()
         results = self.le_encoder.inverse_transform(preds)
         output = [{'input': input[i],
-                   'embeddings': x_train[i],
+                   # 'embeddings': x_train[i],
                    #'label': r,
                    'label': r.item(),
                    'highestProb': max(probs[i]),
