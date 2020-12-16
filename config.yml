@@ -21,7 +21,7 @@ model:
   hidden_dims : 200
   filters : 250
   kernel_size : 3
-  dropout: 0.2
+  dropout: 0.1
   epochs : 10
   activation: 'relu'
   strides : 1

@@ -16,6 +16,7 @@ nltk = "*"
 torch = "*"
 torchvision = "*"
 allennlp = "*"
+transformers = "*"
 
 [requires]
 python_version = "3.6"

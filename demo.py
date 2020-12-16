@@ -1,4 +1,4 @@
-from model import Model
+from model import CNNModel
 import os
 import pandas
 from sklearn.metrics import classification_report
@@ -8,12 +8,13 @@ from sklearn.metrics import classification_report
 
 
 def main():
-    model = Model(word2vec_pkl_path='/home/xchen/models/wiki-news-300d-1M.pkl', config_path='config.yml', encoder_type='transformer', 
+    model = CNNModel(word2vec_pkl_path='/home/jovyan/models/fasttext/wiki-news-300d-1M.pkl', config_path='config.yml', encoder_type='transformer', 
             label_smoothing=0, gpu_id=0)
 
-    test_model_path = '/home/xchen/data/cb_nlu_test_model'
-    tr_set_path = '/home/xchen/data/finserv_generic_tr.json'
-    te_set_path = '/home/xchen/data/finserv_generic_te.json'
+    test_model_path = '/home/jovyan/data/cb_nlu_test_model'
+    tr_set_path = '/home/jovyan/data/usic_data/tr.json'
+    va_set_path = '/home/jovyan/data/usic_data/va.json'
+    te_set_path = '/home/jovyan/data/usic_data/te.json'
 
     ######################### training #########################
     print("start training")

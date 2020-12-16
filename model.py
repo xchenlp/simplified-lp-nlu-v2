@@ -3,16 +3,19 @@ import random
 import numpy as np
 import collections
 
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
 import tensorflow.compat.v1 as tf
 tf.disable_v2_behavior()
-from tensorflow.keras.layers import Dense, Dropout, Activation, Conv1D, GlobalMaxPooling1D
+from tensorflow.keras.layers import Dense, Dropout, Activation, Conv1D, GlobalMaxPooling1D, Concatenate
 from tensorflow.keras.models import Sequential, model_from_json
 from tensorflow.keras import backend as K
+from tensorflow.keras import Input, Model
 from gensim.models.keyedvectors import KeyedVectors
 from nltk.tokenize import TreebankWordTokenizer
+from nltk.tokenize.toktok import ToktokTokenizer
 import re
 import pickle
-import os
 
 import yaml
 import pandas
@@ -26,6 +29,8 @@ import math
 import torch
 
 from encoder import Encoder
+
+
 
 SEED = 7
 
@@ -170,12 +175,13 @@ def createPermutationDataSet(dataset=[], entities=[]):
     print('[createPermutationDataSet] Post: [dataset size]: %d ' % (len(resultDS),))
     return resultDS
 
-class Model:
+class CNNModel:
     def __init__(self, word2vec_pkl_path=None, config_path='./config.yml', label_smoothing=0, encoder_type='fasttext', gpu_id=-1):
         with open(config_path, 'r') as f:
             self.model_cfg = yaml.safe_load(f)['model']
         if encoder_type == 'fasttext':
-            self.tokenizer = TreebankWordTokenizer()
+#             self.tokenizer = TreebankWordTokenizer()
+            self.tokenizer = ToktokTokenizer()
 
             with open(word2vec_pkl_path, 'rb') as f:
                 self.vectors = pickle.load(f)
@@ -188,7 +194,7 @@ class Model:
         self.encoder_type = encoder_type
         self.gpu_id = gpu_id
 
-    def train(self, tr_set_path: str, save_path: str, entities_path: str=None,  va_split: float=0.1, stratified_split: bool=False, early_stopping: bool=True):
+    def train(self, tr_set_path: str, save_path: str, entities_path: str=None, va_set_path: str=None, va_split: float=0.1, stratified_split: bool=False, early_stopping: bool=True):
         """
         Train a model for a given dataset
         Dataset should be a list of tuples consisting of
@@ -205,22 +211,26 @@ class Model:
         """
         df_tr = read_csv_json(tr_set_path)
         entities = None if entities_path is None else self.__get_entities(entities_path)
-        if stratified_split:
-            df_va = df_tr.groupby('intent').apply(lambda g: g.sample(frac=va_split, random_state=SEED))
-            df_tr = df_tr[~df_tr.index.isin(df_va.index.get_level_values(1))]
-            va_messages, va_labels = list(df_va.text), list(df_va.intent)
-            va_dataset = [{'data': va_messages[i], 'label': va_labels[i]} for i in range(len(df_va))]
-            tr_messages, tr_labels = list(df_tr.text), list(df_tr.intent)
+        
+        if not stratified_split and va_set_path is not None:
+            tr_messages, tr_labels = list(df_tr.text), list(df_tr[os.getenv('intent_field_name', 'intent')])
             tr_dataset = [{'data': tr_messages[i], 'label': tr_labels[i]} for i in range(len(df_tr))]
             (x_train, y_train, le_encoder) = self.__preprocess(tr_dataset) if entities is None else \
                                             self.__preprocess(tr_dataset, entities)
-            (x_va, y_va, _) = self.__preprocess(va_dataset, le_encoder=le_encoder) if entities is None else \
-                                            self.__preprocess(va_dataset, entities, le_encoder)
         else:
-            tr_messages, tr_labels = list(df_tr.text), list(df_tr.intent)
+            if stratified_split:
+                df_va = df_tr.groupby([os.getenv('intent_field_name', 'intent')]).apply(lambda g: g.sample(frac=va_split, random_state=SEED))
+                df_tr = df_tr[~df_tr.index.isin(df_va.index.get_level_values(1))]
+            elif va_set_path:
+                df_va = read_csv_json(va_set_path)
+            va_messages, va_labels = list(df_va.text), list(df_va[os.getenv('intent_field_name', 'intent')])
+            va_dataset = [{'data': va_messages[i], 'label': va_labels[i]} for i in range(len(df_va))]
+            tr_messages, tr_labels = list(df_tr.text), list(df_tr[os.getenv('intent_field_name', 'intent')])
             tr_dataset = [{'data': tr_messages[i], 'label': tr_labels[i]} for i in range(len(df_tr))]
             (x_train, y_train, le_encoder) = self.__preprocess(tr_dataset) if entities is None else \
-                                            self.__preprocess(tr_dataset, entities)
+                                                self.__preprocess(tr_dataset, entities)
+            (x_va, y_va, _) = self.__preprocess(va_dataset, le_encoder=le_encoder) if entities is None else \
+                                                self.__preprocess(va_dataset, entities, le_encoder)
 
         K.clear_session()
         graph = tf.Graph()
@@ -229,6 +239,7 @@ class Model:
             with session.as_default():
                 session.run(tf.global_variables_initializer())
                 model = self.__build_model(num_classes=len(le_encoder.categories_[0]))
+                print(model.summary())
                 model.compile(
                       loss=losses.CategoricalCrossentropy(label_smoothing=self.label_smoothing),
                       #metrics=['categorical_accuracy'],
@@ -308,7 +319,7 @@ class Model:
             x_train = np.reshape(x_train, (len(x_train), self.model_cfg['maxlen'], self.model_cfg['embedding_dims']))
             
         elif self.encoder_type == 'transformer':
-            encoder = Encoder('distilmbert', max_sent_len=self.model_cfg['maxlen'], pad_to_max_sent_len=True, gpu_id=self.gpu_id)
+            encoder = Encoder('distilmbert', model_dir='/home/jovyan/models/distilmbert_eng_esp_por', max_sent_len=self.model_cfg['maxlen'], pad_to_max_sent_len=True, gpu_id=self.gpu_id)
             x_train = self.__encode_batch(encoder, data)
 
         else:
@@ -347,6 +358,7 @@ class Model:
         activation_type = model_cfg.get('activation', 'relu')
         kernel_size = model_cfg.get('kernel_size', 3)
         hidden_dims = model_cfg.get('hidden_dims', 200)
+        dropout = model_cfg.get('dropout', 0.5)
 
         model.add(Conv1D(
             filters,
@@ -356,8 +368,41 @@ class Model:
             strides=strides,
             input_shape=(maxlen, embedding_dims)))
         model.add(GlobalMaxPooling1D())
-        model.add(Dense(hidden_dims))
+        # add dropout
+#         if dropout != 0:
+#             print('dropout rate:', dropout)
+#             model.add(Dropout(rate=dropout))
+        model.add(Dense(hidden_dims)) # prolly not necessary anymore with dropout; without dropout, it reduces the hidden dim from 250 (num of features) to 200 when dropout is more commonly invoked to zero out a certain portion of units
         model.add(Activation(activation_type))
+    
+        # add 3 Conv1Ds in parallel with different kernel sizes
+#         filters = 100
+#         kernel_size = [3, 4, 5]
+#         input_shape = (model_cfg.get('maxlen'), 768)
+#         inp = Input(shape=input_shape)
+#         convs = []
+#         for i in range(len(kernel_size)):
+#             conv = Conv1D(
+#                 filters,
+#                 kernel_size[i],
+#                 padding='valid',
+#                 activation=activation_type,
+#                 strides=strides,
+#                 input_shape=input_shape)(inp)
+#             pool = GlobalMaxPooling1D()(conv)
+#             convs.append(pool)
+
+#         if len(kernel_size) > 1:
+#             out = Concatenate()(convs)
+#         else:
+#             out = convs[0]
+
+#         conv_model = Model(inputs=inp, outputs=out)
+#         print("parallel conv1d layer:")
+#         print(conv_model.summary())
+#         model.add(conv_model)
+#         model.add(Dropout(model_cfg.get('dropout', 0.5)))
+#         model.add(Activation(activation_type))
 
     def load(self, path):
         K.clear_session()
